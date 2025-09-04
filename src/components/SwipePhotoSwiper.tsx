@@ -142,8 +142,8 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
 
   const loadDevicePhotos = async () => {
     try {
-      // Request permissions
-      const { status } = await MediaLibrary.requestPermissionsAsync();
+      // Request permissions - only for images
+      const { status } = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
       
       if (status !== 'granted') {
         Alert.alert(

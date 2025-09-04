@@ -14,7 +14,6 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.photopicks",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "PhotoPicks needs access to your photo library to help you organize and manage your photos.",
         "NSPhotoLibraryAddUsageDescription": "PhotoPicks needs permission to save organized photos back to your library."
@@ -27,9 +26,10 @@
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
         "READ_MEDIA_IMAGES"
-      ],
-      "package": "com.anonymous.photopicks"
+      ]
     },
     "web": {
       "favicon": "./assets/app_icon_photo_picks.png"
