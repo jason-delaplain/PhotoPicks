@@ -13,14 +13,23 @@
       "backgroundColor": "#0a0e1a"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "PhotoPicks needs access to your photo library to help you organize and manage your photos.",
+        "NSPhotoLibraryAddUsageDescription": "PhotoPicks needs permission to save organized photos back to your library."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/app_icon_photo_picks.png",
         "backgroundColor": "#0a0e1a"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
+      ]
     },
     "web": {
       "favicon": "./assets/app_icon_photo_picks.png"

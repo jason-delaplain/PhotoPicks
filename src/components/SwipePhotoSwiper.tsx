@@ -10,8 +10,13 @@ import {
   TouchableOpacity,
   Alert,
   Linking,
+  Platform,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
@@ -19,19 +24,27 @@ const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
 interface Photo {
   uri: string;
   filename?: string | null;
+  id: string;
+  mediaType?: string;
+  width: number;
+  height: number;
+  creationTime: number;
+  modificationTime: number;
 }
 
 interface SwipePhotoSwiperProps {
   onPhotoAction: (action: 'keep' | 'delete' | 'edit', photo: Photo) => void;
   onBack: () => void;
+  onPendingDeletions?: (photos: Photo[]) => void; // New prop to pass pending deletions back
 }
 
-const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBack }) => {
+const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBack, onPendingDeletions }) => {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [keptCount, setKeptCount] = useState(0);
   const [deletedCount, setDeletedCount] = useState(0);
+  const [pendingDeletions, setPendingDeletions] = useState<Photo[]>([]); // Track photos marked for deletion
   
   const translateX = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(1)).current;
@@ -39,29 +52,210 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
   const nextPhotoScale = useRef(new Animated.Value(0.9)).current;
 
   useEffect(() => {
-    loadSamplePhotos();
+    loadDevicePhotos();
+    loadExistingPendingDeletions();
   }, []);
 
+  const loadExistingPendingDeletions = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('pendingDeletions');
+      if (stored) {
+        const parsedDeletions = JSON.parse(stored);
+        setPendingDeletions(parsedDeletions);
+        console.log(`Loaded ${parsedDeletions.length} existing pending deletions`);
+      }
+    } catch (error) {
+      console.error('Error loading existing pending deletions:', error);
+    }
+  };
+
+  const savePendingDeletionsToStorage = async (deletions: Photo[]) => {
+    try {
+      await AsyncStorage.setItem('pendingDeletions', JSON.stringify(deletions));
+      console.log(`Saved ${deletions.length} pending deletions to storage`);
+    } catch (error) {
+      console.error('Error saving pending deletions to storage:', error);
+    }
+  };
+
+  const handleBackPress = () => {
+    if (pendingDeletions.length > 0) {
+      Alert.alert(
+        'Confirm Deletions',
+        `You have ${pendingDeletions.length} photo${pendingDeletions.length > 1 ? 's' : ''} marked for deletion. What would you like to do?`,
+        [
+          { 
+            text: 'Delete Now', 
+            style: 'destructive',
+            onPress: () => confirmDeletions()
+          },
+          { 
+            text: 'Later', 
+            onPress: async () => {
+              // Save to storage and pass pending deletions back to parent
+              await savePendingDeletionsToStorage(pendingDeletions);
+              onPendingDeletions?.(pendingDeletions);
+              onBack();
+            }
+          },
+          { 
+            text: 'Cancel', 
+            style: 'cancel' 
+          }
+        ]
+      );
+    } else {
+      onBack();
+    }
+  };
+
+  const confirmDeletions = async () => {
+    try {
+      const realPhotos = pendingDeletions.filter(photo => 
+        photo.id && !photo.id.startsWith('sample_')
+      );
+      
+      if (realPhotos.length > 0) {
+        await MediaLibrary.deleteAssetsAsync(realPhotos.map(photo => photo.id));
+        console.log(`Deleted ${realPhotos.length} photos`);
+      }
+      
+      Alert.alert(
+        'Success',
+        `${realPhotos.length} photo${realPhotos.length > 1 ? 's' : ''} deleted successfully.`,
+        [{ text: 'OK', onPress: () => {
+          // Clear pending deletions and storage, then go back
+          setPendingDeletions([]);
+          AsyncStorage.removeItem('pendingDeletions');
+          onBack();
+        }}]
+      );
+    } catch (error) {
+      console.error('Error deleting photos:', error);
+      Alert.alert(
+        'Error',
+        'Some photos could not be deleted. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  const loadDevicePhotos = async () => {
+    try {
+      // Request permissions
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'We need access to your photos to organize them. Please grant permission in Settings.',
+          [
+            { text: 'Cancel', onPress: () => onBack() },
+            { text: 'Settings', onPress: () => Linking.openSettings() }
+          ]
+        );
+        return;
+      }
+
+      // Get photos from device
+      const mediaResult = await MediaLibrary.getAssetsAsync({
+        mediaType: 'photo',
+        first: 50, // Load first 50 photos for better performance
+        sortBy: 'creationTime'
+      });
+
+      if (mediaResult.assets.length === 0) {
+        Alert.alert(
+          'No Photos Found',
+          'No photos were found on your device.',
+          [{ text: 'OK', onPress: () => onBack() }]
+        );
+        return;
+      }
+
+      // Convert MediaLibrary assets to our Photo interface with proper URIs
+      const devicePhotos: Photo[] = await Promise.all(
+        mediaResult.assets.map(async (asset) => {
+          try {
+            // Get asset info to ensure we have a proper URI
+            const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
+            return {
+              uri: assetInfo.localUri || assetInfo.uri,
+              filename: asset.filename,
+              id: asset.id,
+              mediaType: asset.mediaType,
+              width: asset.width,
+              height: asset.height,
+              creationTime: asset.creationTime,
+              modificationTime: asset.modificationTime
+            };
+          } catch (error) {
+            console.warn('Error getting asset info for', asset.filename, error);
+            // Fallback to original asset
+            return {
+              uri: asset.uri,
+              filename: asset.filename,
+              id: asset.id,
+              mediaType: asset.mediaType,
+              width: asset.width,
+              height: asset.height,
+              creationTime: asset.creationTime,
+              modificationTime: asset.modificationTime
+            };
+          }
+        })
+      );
+
+      setPhotos(devicePhotos);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error loading photos:', error);
+      Alert.alert(
+        'Error',
+        'Failed to load photos from your device. Using sample photos instead.',
+        [{ text: 'OK' }]
+      );
+      loadSamplePhotos();
+    }
+  };
+
   const loadSamplePhotos = () => {
-    // Enhanced sample photos with more variety
-    const samplePhotos = [
-      { uri: 'https://picsum.photos/400/600?random=20', filename: 'sunset_beach.jpg' },
-      { uri: 'https://picsum.photos/400/600?random=21', filename: 'city_skyline.jpg' },
-      { uri: 'https://picsum.photos/400/600?random=22', filename: 'mountain_view.jpg' },
-      { uri: 'https://picsum.photos/400/600?random=23', filename: 'forest_path.jpg' },
-      { uri: 'https://picsum.photos/400/600?random=24', filename: 'ocean_waves.jpg' },
-      { uri: 'https://picsum.photos/400/600?random=25', filename: 'desert_dunes.jpg' },
-      { uri: 'https://picsum.photos/400/600?random=26', filename: 'rain_drops.jpg' },
-      { uri: 'https://picsum.photos/400/600?random=27', filename: 'autumn_leaves.jpg' },
-      { uri: 'https://picsum.photos/400/600?random=28', filename: 'night_stars.jpg' },
-      { uri: 'https://picsum.photos/400/600?random=29', filename: 'flower_garden.jpg' },
+    // Fallback sample photos with required properties
+    const samplePhotos: Photo[] = [
+      { 
+        uri: 'https://picsum.photos/400/600?random=20', 
+        filename: 'sunset_beach.jpg',
+        id: 'sample_1',
+        width: 400,
+        height: 600,
+        creationTime: Date.now() - 86400000,
+        modificationTime: Date.now() - 86400000
+      },
+      { 
+        uri: 'https://picsum.photos/400/600?random=21', 
+        filename: 'city_skyline.jpg',
+        id: 'sample_2',
+        width: 400,
+        height: 600,
+        creationTime: Date.now() - 172800000,
+        modificationTime: Date.now() - 172800000
+      },
+      { 
+        uri: 'https://picsum.photos/400/600?random=22', 
+        filename: 'mountain_view.jpg',
+        id: 'sample_3',
+        width: 400,
+        height: 600,
+        creationTime: Date.now() - 259200000,
+        modificationTime: Date.now() - 259200000
+      },
     ];
-    
+
     setPhotos(samplePhotos);
     setLoading(false);
   };
 
-  const handleSwipeAction = (direction: 'left' | 'right', fromButton = false) => {
+  const handleSwipeAction = async (direction: 'left' | 'right', fromButton = false) => {
     if (currentIndex >= photos.length) return;
 
     const currentPhoto = photos[currentIndex];
@@ -70,6 +264,44 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     // Update counters
     if (action === 'delete') {
       setDeletedCount(prev => prev + 1);
+      
+      // For swipe actions, add to pending deletions
+      if (!fromButton) {
+        const newPendingDeletions = [...pendingDeletions, currentPhoto];
+        setPendingDeletions(newPendingDeletions);
+        savePendingDeletionsToStorage(newPendingDeletions);
+        console.log(`Marked for deletion (swipe): ${currentPhoto.filename}`);
+      }
+      
+      // For button presses, show confirmation and actually delete
+      if (fromButton && currentPhoto.id && !currentPhoto.id.startsWith('sample_')) {
+        try {
+          const shouldDelete = await new Promise<boolean>((resolve) => {
+            Alert.alert(
+              'Delete Photo',
+              `Are you sure you want to permanently delete "${currentPhoto.filename}"?`,
+              [
+                { text: 'Cancel', onPress: () => resolve(false) },
+                { text: 'Delete', style: 'destructive', onPress: () => resolve(true) }
+              ]
+            );
+          });
+
+          if (shouldDelete) {
+            await MediaLibrary.deleteAssetsAsync([currentPhoto.id]);
+            console.log(`Deleted photo: ${currentPhoto.filename}`);
+          } else {
+            // User cancelled, don't count as deleted
+            setDeletedCount(prev => prev - 1);
+            return;
+          }
+        } catch (error) {
+          console.error('Error deleting photo:', error);
+          Alert.alert('Error', 'Failed to delete photo from device.');
+          setDeletedCount(prev => prev - 1);
+          return;
+        }
+      }
     } else {
       setKeptCount(prev => prev + 1);
     }
@@ -105,27 +337,58 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     });
   };
 
-  const handleEditPhoto = () => {
+  const handleEditPhoto = async () => {
     if (currentIndex >= photos.length) return;
     
     const currentPhoto = photos[currentIndex];
     onPhotoAction('edit', currentPhoto);
     
-    Alert.alert(
-      'Edit Photo',
-      `Would you like to open ${currentPhoto.filename || 'this photo'} in an external editor?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Open Photos App', 
-          onPress: () => {
-            // In a real app, you'd use a library like react-native-image-picker
-            // For demo, we'll show an alert
-            Alert.alert('Demo Mode', 'In a real app, this would open the Photos app or another image editor.');
-          }
-        },
-      ]
-    );
+    try {
+      // Check if sharing is available
+      const isAvailable = await Sharing.isAvailableAsync();
+      
+      if (isAvailable) {
+        // For real device photos, share directly
+        if (currentPhoto.id && !currentPhoto.id.startsWith('sample_')) {
+          await Sharing.shareAsync(currentPhoto.uri, {
+            dialogTitle: `Edit ${currentPhoto.filename || 'Photo'}`,
+            mimeType: 'image/jpeg',
+          });
+        } else {
+          // For sample photos, we need to download and share
+          Alert.alert(
+            'Sample Photo',
+            'This is a sample photo. In a real app, you would be able to edit your actual photos.',
+            [{ text: 'OK' }]
+          );
+        }
+      } else {
+        // Fallback for platforms where sharing isn't available
+        Alert.alert(
+          'Edit Photo',
+          Platform.select({
+            ios: 'Would you like to open this photo in the Photos app?',
+            android: 'Would you like to open this photo in your gallery app?',
+            default: 'Photo editing is not available on this platform.'
+          }),
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: Platform.select({ ios: 'Open Photos', android: 'Open Gallery', default: 'OK' }), 
+              onPress: () => {
+                // On iOS/Android, this would typically open the native photo app
+                Linking.openURL(currentPhoto.uri).catch(() => {
+                  Alert.alert('Error', 'Unable to open photo in external app.');
+                });
+              }
+            },
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Error sharing photo:', error);
+      Alert.alert('Error', 'Failed to open photo for editing.');
+    }
   };
 
   const panResponder = PanResponder.create({
@@ -191,7 +454,7 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     return (
       <View style={styles.loadingContainer}>
         <Text style={styles.loadingText}>No photos found</Text>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
           <Text style={styles.backButtonText}>← Back to Menu</Text>
         </TouchableOpacity>
       </View>
@@ -224,7 +487,7 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
           </View>
         </View>
         
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
           <Text style={styles.backButtonText}>← Back to Menu</Text>
         </TouchableOpacity>
       </View>
@@ -238,7 +501,7 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     <View style={styles.container}>
       {/* Header with Navigation */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButtonSmall} onPress={onBack}>
+        <TouchableOpacity style={styles.backButtonSmall} onPress={handleBackPress}>
           <Text style={styles.backButtonSmallText}>← Back</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
