@@ -1,5 +1,7 @@
 # PhotoPicks - AI-Powered Photo Organization
 
+*Photo swiping inspired device image management.*
+
 A modern React Native app built with Expo for organizing and managing your photo collection with AI-powered features.
 
 ## 🚀 Features
