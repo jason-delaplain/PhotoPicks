@@ -105,7 +105,7 @@ const LandingPage = (props: LandingPageProps) => {
         onPress={() => onFeatureSelect('swipe')}
       >
         <View style={styles.mainButtonContent}>
-          <Ionicons name="finger-print" size={48} color="#ffffff" style={styles.mainButtonIcon} />
+          <Ionicons name="swap-horizontal" size={48} color="#ffffff" style={styles.mainButtonIcon} />
           <Text style={styles.mainButtonTitle}>Swipe Photos</Text>
           <Text style={styles.mainButtonSubtitle}>Swipe through all your photos</Text>
         </View>
