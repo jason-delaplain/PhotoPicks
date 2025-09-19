@@ -6,7 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/app_icon_photo_picks.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/app_icon_photo_picks.png",
       "resizeMode": "contain",
@@ -17,7 +16,34 @@
       "bundleIdentifier": "com.anonymous.photopicks",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "PhotoPicks needs access to your photo library to help you organize and manage your photos.",
-        "NSPhotoLibraryAddUsageDescription": "PhotoPicks needs permission to save organized photos back to your library."
+        "NSPhotoLibraryAddUsageDescription": "PhotoPicks needs permission to save organized photos back to your library.",
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Image",
+            "CFBundleTypeRole": "Editor",
+            "LSItemContentTypes": [
+              "public.image",
+              "public.png",
+              "public.jpeg"
+            ],
+            "LSHandlerRank": "Alternate"
+          }
+        ],
+        "UTExportedTypeDeclarations": [
+          {
+            "UTTypeIdentifier": "public.image",
+            "UTTypeReferenceURL": "http://www.apple.com/",
+            "UTTypeDescription": "Image",
+            "UTTypeConformsTo": [
+              "public.data",
+              "public.content"
+            ],
+            "UTTypeTagSpecification": {
+              "public.filename-extension": ["jpg", "jpeg", "png", "gif", "bmp", "tiff"],
+              "public.mime-type": ["image/jpeg", "image/png", "image/gif", "image/bmp", "image/tiff"]
+            }
+          }
+        ]
       }
     },
     "android": {
@@ -25,9 +51,11 @@
         "foregroundImage": "./assets/app_icon_photo_picks.png",
         "backgroundColor": "#0a0e1a"
       },
-      "edgeToEdgeEnabled": true,
       "permissions": [
-        "READ_MEDIA_IMAGES"
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_MEDIA_LOCATION"
       ],
       "package": "com.anonymous.photopicks"
     },

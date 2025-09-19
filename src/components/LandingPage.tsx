@@ -6,22 +6,17 @@ import {
   TouchableOpacity,
   ScrollView,
   Dimensions,
-  Alert,
 } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
-import * as MediaLibrary from 'expo-media-library';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface LandingPageProps {
   onFeatureSelect: (feature: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar') => void;
-  pendingDeletions?: any[];
-  onConfirmDeletions?: () => void;
 }
 
 const LandingPage = (props: LandingPageProps) => {
-  const { onFeatureSelect, pendingDeletions = [], onConfirmDeletions } = props;
+  const { onFeatureSelect } = props;
   const mainFeatures = [
     { 
       id: 'blurry', 
@@ -110,58 +105,6 @@ const LandingPage = (props: LandingPageProps) => {
           <Text style={styles.mainButtonSubtitle}>Swipe through all your photos</Text>
         </View>
       </TouchableOpacity>
-
-      {/* Confirm Deletions Button - Only show if there are pending deletions */}
-      {pendingDeletions.length > 0 && (
-        <View style={styles.pendingDeletionsContainer}>
-          <Text style={styles.pendingDeletionsInfo}>
-            You have {pendingDeletions.length} photo{pendingDeletions.length > 1 ? 's' : ''} marked for deletion from a previous session
-          </Text>
-          <TouchableOpacity 
-            style={[styles.mainButton, styles.deleteButton]}
-            onPress={() => {
-              if (onConfirmDeletions) {
-                Alert.alert(
-                  'Confirm Deletions',
-                  `Are you sure you want to permanently delete ${pendingDeletions.length} photo${pendingDeletions.length > 1 ? 's' : ''}?`,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    { 
-                      text: 'Delete', 
-                      style: 'destructive',
-                      onPress: async () => {
-                        try {
-                          const realPhotos = pendingDeletions.filter(photo => 
-                            photo.id && !photo.id.startsWith('sample_')
-                          );
-                          
-                          if (realPhotos.length > 0) {
-                            await MediaLibrary.deleteAssetsAsync(realPhotos.map(photo => photo.id));
-                          }
-                          
-                          await AsyncStorage.removeItem('pendingDeletions');
-                          onConfirmDeletions();
-                          Alert.alert('Success', `${realPhotos.length} photo${realPhotos.length > 1 ? 's' : ''} deleted.`);
-                        } catch (error) {
-                          Alert.alert('Error', 'Failed to delete some photos.');
-                        }
-                      }
-                    }
-                  ]
-                );
-              }
-            }}
-          >
-            <View style={styles.mainButtonContent}>
-              <Ionicons name="trash" size={48} color="#ffffff" style={styles.mainButtonIcon} />
-              <Text style={styles.mainButtonTitle}>Confirm Deletions</Text>
-              <Text style={styles.mainButtonSubtitle}>
-                {pendingDeletions.length} photo{pendingDeletions.length > 1 ? 's' : ''} marked for deletion
-              </Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-      )}
 
       {/* Feature Options */}
       <View style={styles.sectionHeader}>
@@ -263,25 +206,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#c5dbff',
     textAlign: 'center',
-  },
-  deleteButton: {
-    backgroundColor: '#dc2626', // Red color for delete action
-    shadowColor: '#dc2626',
-  },
-  pendingDeletionsContainer: {
-    backgroundColor: '#2d1b1b', // Dark red background
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#dc2626',
-  },
-  pendingDeletionsInfo: {
-    fontSize: 14,
-    color: '#fca5a5', // Light red text
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
   },
 
   // Section Headers

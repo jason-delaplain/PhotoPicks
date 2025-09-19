@@ -16,7 +16,6 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
@@ -35,72 +34,58 @@ interface Photo {
 interface SwipePhotoSwiperProps {
   onPhotoAction: (action: 'keep' | 'delete' | 'edit', photo: Photo) => void;
   onBack: () => void;
-  onPendingDeletions?: (photos: Photo[]) => void; // New prop to pass pending deletions back
 }
 
-const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBack, onPendingDeletions }) => {
+const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBack }) => {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [keptCount, setKeptCount] = useState(0);
   const [deletedCount, setDeletedCount] = useState(0);
-  const [pendingDeletions, setPendingDeletions] = useState<Photo[]>([]); // Track photos marked for deletion
+  const [photosMarkedForDeletion, setPhotosMarkedForDeletion] = useState<Photo[]>([]); // Track photos marked for deletion
   
   const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(1)).current;
+  const zoomScale = useRef(new Animated.Value(1)).current;
   const rotation = useRef(new Animated.Value(0)).current;
   const nextPhotoScale = useRef(new Animated.Value(0.9)).current;
+  
+  // Track pinch gesture state
+  const [isZooming, setIsZooming] = useState(false);
+  const [initialDistance, setInitialDistance] = useState(0);
+  const [initialScale, setInitialScale] = useState(1);
+  const [currentZoomScale, setCurrentZoomScale] = useState(1);
+  const [lastTap, setLastTap] = useState<number | null>(null);
 
   useEffect(() => {
+    console.log('Loading device photos');
     loadDevicePhotos();
-    loadExistingPendingDeletions();
   }, []);
 
-  const loadExistingPendingDeletions = async () => {
-    try {
-      const stored = await AsyncStorage.getItem('pendingDeletions');
-      if (stored) {
-        const parsedDeletions = JSON.parse(stored);
-        setPendingDeletions(parsedDeletions);
-        console.log(`Loaded ${parsedDeletions.length} existing pending deletions`);
-      }
-    } catch (error) {
-      console.error('Error loading existing pending deletions:', error);
-    }
-  };
-
-  const savePendingDeletionsToStorage = async (deletions: Photo[]) => {
-    try {
-      await AsyncStorage.setItem('pendingDeletions', JSON.stringify(deletions));
-      console.log(`Saved ${deletions.length} pending deletions to storage`);
-    } catch (error) {
-      console.error('Error saving pending deletions to storage:', error);
-    }
-  };
+  // Debug: Log when photos state changes
+  useEffect(() => {
+    console.log(`Photos state changed: now ${photos.length} photos`);
+  }, [photos]);
 
   const handleBackPress = () => {
-    if (pendingDeletions.length > 0) {
+    if (photosMarkedForDeletion.length > 0) {
       Alert.alert(
         'Confirm Deletions',
-        `You have ${pendingDeletions.length} photo${pendingDeletions.length > 1 ? 's' : ''} marked for deletion. What would you like to do?`,
+        `You have ${photosMarkedForDeletion.length} photo${photosMarkedForDeletion.length > 1 ? 's' : ''} marked for deletion. What would you like to do?`,
         [
           { 
-            text: 'Delete Now', 
+            text: `Delete ${photosMarkedForDeletion.length} Now`, 
             style: 'destructive',
             onPress: () => confirmDeletions()
           },
           { 
-            text: 'Later', 
-            onPress: async () => {
-              // Save to storage and pass pending deletions back to parent
-              await savePendingDeletionsToStorage(pendingDeletions);
-              onPendingDeletions?.(pendingDeletions);
+            text: 'Nevermind', 
+            onPress: () => {
+              // Clear marked photos and go back without deleting
+              setPhotosMarkedForDeletion([]);
               onBack();
             }
-          },
-          { 
-            text: 'Cancel', 
-            style: 'cancel' 
           }
         ]
       );
@@ -111,7 +96,7 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
 
   const confirmDeletions = async () => {
     try {
-      const realPhotos = pendingDeletions.filter(photo => 
+      const realPhotos = photosMarkedForDeletion.filter(photo => 
         photo.id && !photo.id.startsWith('sample_')
       );
       
@@ -124,9 +109,8 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
         'Success',
         `${realPhotos.length} photo${realPhotos.length > 1 ? 's' : ''} deleted successfully.`,
         [{ text: 'OK', onPress: () => {
-          // Clear pending deletions and storage, then go back
-          setPendingDeletions([]);
-          AsyncStorage.removeItem('pendingDeletions');
+          // Clear marked photos and go back
+          setPhotosMarkedForDeletion([]);
           onBack();
         }}]
       );
@@ -142,34 +126,40 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
 
   const loadDevicePhotos = async () => {
     try {
-      // Request permissions - only for images
-      const { status } = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
+      // Request permissions with proper write access for deletion
+      const permissionResult = await MediaLibrary.requestPermissionsAsync(true);
       
-      if (status !== 'granted') {
+      console.log('Permissions granted:', permissionResult);
+      
+      if (permissionResult.status !== 'granted') {
+        console.log('Permission denied, loading sample photos');
         Alert.alert(
           'Permission Required',
-          'We need access to your photos to organize them. Please grant permission in Settings.',
-          [
-            { text: 'Cancel', onPress: () => onBack() },
-            { text: 'Settings', onPress: () => Linking.openSettings() }
-          ]
+          'We need access to your photos to organize them. Loading sample photos for demo.',
+          [{ text: 'OK' }]
         );
+        loadSamplePhotos();
         return;
       }
 
       // Get photos from device
+      console.log('Getting assets from MediaLibrary...');
       const mediaResult = await MediaLibrary.getAssetsAsync({
         mediaType: 'photo',
-        first: 50, // Load first 50 photos for better performance
+        first: 20, // Reduced for testing
         sortBy: 'creationTime'
       });
 
+      console.log(`Found ${mediaResult.assets.length} assets from MediaLibrary`);
+
       if (mediaResult.assets.length === 0) {
+        console.log('No device photos found, loading sample photos');
         Alert.alert(
           'No Photos Found',
-          'No photos were found on your device.',
-          [{ text: 'OK', onPress: () => onBack() }]
+          'No photos were found on your device. Loading sample photos for demo.',
+          [{ text: 'OK' }]
         );
+        loadSamplePhotos();
         return;
       }
 
@@ -206,13 +196,17 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
         })
       );
 
+      console.log(`Total device photos loaded: ${devicePhotos.length}`);
       setPhotos(devicePhotos);
+      console.log(`Photos state updated to ${devicePhotos.length} photos`);
       setLoading(false);
     } catch (error) {
       console.error('Error loading photos:', error);
+      console.log('Loading sample photos due to error');
+      // Always load sample photos if there's any error (including Expo Go limitations)
       Alert.alert(
-        'Error',
-        'Failed to load photos from your device. Using sample photos instead.',
+        'Using Sample Photos',
+        'Due to platform limitations in Expo Go, we\'ll use sample photos to demonstrate the app functionality.',
         [{ text: 'OK' }]
       );
       loadSamplePhotos();
@@ -256,54 +250,50 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
   };
 
   const handleSwipeAction = async (direction: 'left' | 'right', fromButton = false) => {
-    if (currentIndex >= photos.length) return;
+    console.log(`Handle swipe action: direction=${direction}, fromButton=${fromButton}, currentIndex=${currentIndex}, photosLength=${photos.length}`);
+    
+    if (currentIndex >= photos.length) {
+      console.log('No more photos to swipe');
+      return;
+    }
 
     const currentPhoto = photos[currentIndex];
+    console.log(`Current photo: ${currentPhoto.filename}, id: ${currentPhoto.id}`);
+    
     const action = direction === 'left' ? 'delete' : 'keep';
+    console.log(`Action: ${action}`);
     
     // Update counters
     if (action === 'delete') {
-      setDeletedCount(prev => prev + 1);
+      setDeletedCount(prev => {
+        console.log(`Updating deleted count from ${prev} to ${prev + 1}`);
+        return prev + 1;
+      });
       
-      // For swipe actions, add to pending deletions
-      if (!fromButton) {
-        const newPendingDeletions = [...pendingDeletions, currentPhoto];
-        setPendingDeletions(newPendingDeletions);
-        savePendingDeletionsToStorage(newPendingDeletions);
-        console.log(`Marked for deletion (swipe): ${currentPhoto.filename}`);
-      }
+      // Check if this is a sample photo
+      const isSamplePhoto = currentPhoto.id && currentPhoto.id.startsWith('sample_');
+      console.log(`Is sample photo: ${isSamplePhoto}`);
       
-      // For button presses, show confirmation and actually delete
-      if (fromButton && currentPhoto.id && !currentPhoto.id.startsWith('sample_')) {
-        try {
-          const shouldDelete = await new Promise<boolean>((resolve) => {
-            Alert.alert(
-              'Delete Photo',
-              `Are you sure you want to permanently delete "${currentPhoto.filename}"?`,
-              [
-                { text: 'Cancel', onPress: () => resolve(false) },
-                { text: 'Delete', style: 'destructive', onPress: () => resolve(true) }
-              ]
-            );
-          });
-
-          if (shouldDelete) {
-            await MediaLibrary.deleteAssetsAsync([currentPhoto.id]);
-            console.log(`Deleted photo: ${currentPhoto.filename}`);
-          } else {
-            // User cancelled, don't count as deleted
-            setDeletedCount(prev => prev - 1);
-            return;
-          }
-        } catch (error) {
-          console.error('Error deleting photo:', error);
-          Alert.alert('Error', 'Failed to delete photo from device.');
-          setDeletedCount(prev => prev - 1);
-          return;
+      if (isSamplePhoto) {
+        // For sample photos, just show a message and continue
+        console.log(`Sample photo marked for deletion: ${currentPhoto.filename}`);
+        if (fromButton) {
+          Alert.alert(
+            'Sample Photo',
+            'This is a sample photo and cannot be actually deleted from your device.',
+            [{ text: 'OK' }]
+          );
         }
+      } else {
+        // For real photos, add to marked for deletion
+        setPhotosMarkedForDeletion(prev => [...prev, currentPhoto]);
+        console.log(`Photo marked for deletion: ${currentPhoto.filename}`);
       }
     } else {
-      setKeptCount(prev => prev + 1);
+      setKeptCount(prev => {
+        console.log(`Updating kept count from ${prev} to ${prev + 1}`);
+        return prev + 1;
+      });
     }
     
     onPhotoAction(action, currentPhoto);
@@ -331,9 +321,12 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
       // Move to next photo and reset animations
       setCurrentIndex(prev => prev + 1);
       translateX.setValue(0);
+      translateY.setValue(0);
       scale.setValue(1);
+      zoomScale.setValue(1);
       rotation.setValue(0);
       nextPhotoScale.setValue(0.9);
+      setCurrentZoomScale(1);
     });
   };
 
@@ -344,100 +337,252 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     onPhotoAction('edit', currentPhoto);
     
     try {
-      // Check if sharing is available
-      const isAvailable = await Sharing.isAvailableAsync();
-      
-      if (isAvailable) {
-        // For real device photos, share directly
-        if (currentPhoto.id && !currentPhoto.id.startsWith('sample_')) {
+      // For sample photos, show info message
+      if (currentPhoto.id && currentPhoto.id.startsWith('sample_')) {
+        Alert.alert(
+          'Sample Photo',
+          'This is a sample photo. In a real app, you would be able to edit your actual photos.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      if (Platform.OS === 'ios') {
+        // iOS: Go directly to share dialog
+        const isAvailable = await Sharing.isAvailableAsync();
+        if (isAvailable) {
           await Sharing.shareAsync(currentPhoto.uri, {
-            dialogTitle: `Edit ${currentPhoto.filename || 'Photo'}`,
-            mimeType: 'image/jpeg',
+            dialogTitle: 'Share Photo',
+            mimeType: 'image/png',
+            UTI: 'public.image',
           });
         } else {
-          // For sample photos, we need to download and share
-          Alert.alert(
-            'Sample Photo',
-            'This is a sample photo. In a real app, you would be able to edit your actual photos.',
-            [{ text: 'OK' }]
-          );
+          Alert.alert('Share Not Available', 'Photo sharing is not available.');
         }
       } else {
-        // Fallback for platforms where sharing isn't available
+        // Android: Show options dialog for editing
         Alert.alert(
           'Edit Photo',
-          Platform.select({
-            ios: 'Would you like to open this photo in the Photos app?',
-            android: 'Would you like to open this photo in your gallery app?',
-            default: 'Photo editing is not available on this platform.'
-          }),
+          'Choose how you want to edit this photo:',
           [
             { text: 'Cancel', style: 'cancel' },
             { 
-              text: Platform.select({ ios: 'Open Photos', android: 'Open Gallery', default: 'OK' }), 
-              onPress: () => {
-                // On iOS/Android, this would typically open the native photo app
-                Linking.openURL(currentPhoto.uri).catch(() => {
-                  Alert.alert('Error', 'Unable to open photo in external app.');
-                });
+              text: 'Share to Apps', 
+              onPress: async () => {
+                try {
+                  const isAvailable = await Sharing.isAvailableAsync();
+                  if (isAvailable) {
+                    await Sharing.shareAsync(currentPhoto.uri, {
+                      dialogTitle: 'Choose App',
+                      mimeType: 'image/png',
+                      UTI: 'public.image',
+                    });
+                  } else {
+                    Alert.alert('Share Not Available', 'Photo sharing is not available.');
+                  }
+                } catch (error) {
+                  console.error('Error sharing photo:', error);
+                  Alert.alert('Error', 'Unable to share photo.');
+                }
+              }
+            },
+            { 
+              text: 'Edit Photo', 
+              onPress: async () => {
+                try {
+                  const isAvailable = await Sharing.isAvailableAsync();
+                  if (isAvailable) {
+                    await Sharing.shareAsync(currentPhoto.uri, {
+                      dialogTitle: 'Choose Photo Editor',
+                      mimeType: 'image/png',
+                      UTI: 'public.image',
+                    });
+                  } else {
+                    Alert.alert('Edit Not Available', 'Photo editing is not available.');
+                  }
+                } catch (error) {
+                  console.error('Error editing photo:', error);
+                  Alert.alert('Error', 'Unable to edit photo.');
+                }
               }
             },
           ]
         );
       }
     } catch (error) {
-      console.error('Error sharing photo:', error);
+      console.error('Error opening photo for editing:', error);
       Alert.alert('Error', 'Failed to open photo for editing.');
     }
   };
 
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_, gestureState) => {
-      return Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
-    },
-    
-    onPanResponderGrant: () => {
-      Animated.spring(scale, {
-        toValue: 0.95,
-        useNativeDriver: true,
-      }).start();
-    },
+  // Utility functions for pinch gesture detection
+  const getDistance = (touches: any[]) => {
+    if (touches.length < 2) return 0;
+    const [touch1, touch2] = touches;
+    const dx = touch1.pageX - touch2.pageX;
+    const dy = touch1.pageY - touch2.pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
 
-    onPanResponderMove: (_, gestureState) => {
-      translateX.setValue(gestureState.dx);
-      rotation.setValue(gestureState.dx * 0.05);
-      
-      // Scale next photo based on current photo movement
-      const progress = Math.abs(gestureState.dx) / SCREEN_WIDTH;
-      nextPhotoScale.setValue(0.9 + (progress * 0.1));
-    },
+  const getCenter = (touches: any[]) => {
+    if (touches.length < 2) return { x: 0, y: 0 };
+    const [touch1, touch2] = touches;
+    return {
+      x: (touch1.pageX + touch2.pageX) / 2,
+      y: (touch1.pageY + touch2.pageY) / 2,
+    };
+  };
 
-    onPanResponderRelease: (_, gestureState) => {
-      Animated.spring(scale, {
+  const resetZoom = () => {
+    Animated.parallel([
+      Animated.spring(zoomScale, {
         toValue: 1,
         useNativeDriver: true,
-      }).start();
+      }),
+      Animated.spring(translateX, {
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateY, {
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    setCurrentZoomScale(1);
+  };
 
-      if (Math.abs(gestureState.dx) > SWIPE_THRESHOLD) {
-        const direction = gestureState.dx > 0 ? 'right' : 'left';
-        handleSwipeAction(direction);
+  const handleDoubleTap = () => {
+    const now = Date.now();
+    const DOUBLE_PRESS_DELAY = 300;
+    
+    if (lastTap && (now - lastTap) < DOUBLE_PRESS_DELAY) {
+      // Double tap detected
+      console.log('Double tap detected - resetting zoom');
+      resetZoom();
+      setLastTap(null);
+    } else {
+      setLastTap(now);
+    }
+  };
+
+  const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: (evt) => {
+      // Always capture if multiple touches (pinch)
+      return evt.nativeEvent.touches.length >= 1;
+    },
+    onMoveShouldSetPanResponder: (evt, gestureState) => {
+      const touches = evt.nativeEvent.touches;
+      
+      // If multiple touches, it's a pinch gesture
+      if (touches.length >= 2) {
+        return true;
+      }
+      
+      // For single touch, only capture horizontal swipes (existing behavior)
+      return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
+    },
+    
+    onPanResponderGrant: (evt) => {
+      const touches = evt.nativeEvent.touches;
+      
+      if (touches.length >= 2) {
+        // Pinch gesture started
+        setIsZooming(true);
+        const distance = getDistance(touches);
+        setInitialDistance(distance);
+        setInitialScale(currentZoomScale);
+        console.log('Pinch gesture started');
       } else {
-        // Snap back to center
-        Animated.parallel([
-          Animated.spring(translateX, {
-            toValue: 0,
-            useNativeDriver: true,
-          }),
-          Animated.spring(rotation, {
-            toValue: 0,
-            useNativeDriver: true,
-          }),
-          Animated.spring(nextPhotoScale, {
-            toValue: 0.9,
-            useNativeDriver: true,
-          }),
-        ]).start();
+        // Single finger gesture (swipe)
+        setIsZooming(false);
+        Animated.spring(scale, {
+          toValue: 0.95,
+          useNativeDriver: true,
+        }).start();
+      }
+    },
+
+    onPanResponderMove: (evt, gestureState) => {
+      const touches = evt.nativeEvent.touches;
+      
+      if (touches.length >= 2 && isZooming) {
+        // Handle pinch-to-zoom
+        const distance = getDistance(touches);
+        if (initialDistance > 0) {
+          const scaleChange = distance / initialDistance;
+          let newScale = initialScale * scaleChange;
+          
+          // Limit zoom between 0.5x and 3x
+          newScale = Math.max(0.5, Math.min(3, newScale));
+          
+          zoomScale.setValue(newScale);
+          setCurrentZoomScale(newScale);
+          
+          // If zoomed in, allow panning
+          if (newScale > 1) {
+            const center = getCenter(touches);
+            // Simple panning - can be enhanced for better UX
+            translateX.setValue(gestureState.dx * 0.5);
+            translateY.setValue(gestureState.dy * 0.5);
+          }
+        }
+      } else if (touches.length === 1 && !isZooming) {
+        // Handle single finger swipe (existing behavior)
+        translateX.setValue(gestureState.dx);
+        rotation.setValue(gestureState.dx * 0.05);
+        
+        // Scale next photo based on current photo movement
+        const progress = Math.abs(gestureState.dx) / SCREEN_WIDTH;
+        nextPhotoScale.setValue(0.9 + (progress * 0.1));
+      }
+    },
+
+    onPanResponderRelease: (evt, gestureState) => {
+      const touches = evt.nativeEvent.touches;
+      
+      if (isZooming) {
+        // End pinch gesture
+        setIsZooming(false);
+        console.log('Pinch gesture ended');
+        
+        // If zoom is close to 1, snap back to 1
+        if (Math.abs(currentZoomScale - 1) < 0.1) {
+          resetZoom();
+        }
+      } else {
+        // Handle single finger release (existing swipe behavior)
+        console.log(`Pan responder release: dx=${gestureState.dx}, dy=${gestureState.dy}, SWIPE_THRESHOLD=${SWIPE_THRESHOLD}`);
+        
+        Animated.spring(scale, {
+          toValue: 1,
+          useNativeDriver: true,
+        }).start();
+
+        if (Math.abs(gestureState.dx) > SWIPE_THRESHOLD) {
+          const direction = gestureState.dx > 0 ? 'right' : 'left';
+          console.log(`Swipe detected! Direction: ${direction}`);
+          
+          // Reset zoom before swiping to next photo
+          resetZoom();
+          handleSwipeAction(direction);
+        } else {
+          console.log('Swipe not strong enough, snapping back');
+          // Snap back to center
+          Animated.parallel([
+            Animated.spring(translateX, {
+              toValue: 0,
+              useNativeDriver: true,
+            }),
+            Animated.spring(rotation, {
+              toValue: 0,
+              useNativeDriver: true,
+            }),
+            Animated.spring(nextPhotoScale, {
+              toValue: 0.9,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        }
       }
     },
   });
@@ -451,6 +596,7 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
   }
 
   if (photos.length === 0) {
+    console.log('No photos found - photos.length is 0');
     return (
       <View style={styles.loadingContainer}>
         <Text style={styles.loadingText}>No photos found</Text>
@@ -520,13 +666,15 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
           </View>
         </View>
         <TouchableOpacity style={styles.editButton} onPress={handleEditPhoto}>
-          <Text style={styles.editButtonText}>Edit</Text>
+          <Text style={styles.editButtonText}>
+            {Platform.select({ ios: 'Share', android: 'Share', default: 'Share' })}
+          </Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.titleContainer}>
         <Text style={styles.title}>PhotoPicks - Swipe Mode</Text>
-        <Text style={styles.subtitle}>Swipe or tap to organize photos</Text>
+        <Text style={styles.subtitle}>Swipe left to delete • Swipe right to keep • Pinch to zoom</Text>
       </View>
 
       {/* Photo Stack Container */}
@@ -554,7 +702,8 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
             {
               transform: [
                 { translateX },
-                { scale },
+                { translateY },
+                { scale: Animated.multiply(scale, zoomScale) },
                 { rotate: rotation.interpolate({
                     inputRange: [-200, 0, 200],
                     outputRange: ['-15deg', '0deg', '15deg'],
@@ -565,63 +714,54 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
           ]}
           {...panResponder.panHandlers}
         >
-          <Image source={{ uri: currentPhoto.uri }} style={styles.photo} />
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={handleDoubleTap}
+            style={styles.imageContainer}
+          >
+            <Image source={{ uri: currentPhoto.uri }} style={styles.photo} />
+          </TouchableOpacity>
           
           {/* Filename overlay */}
           <View style={styles.filenameOverlay}>
             <Text style={styles.filenameText}>{currentPhoto.filename}</Text>
           </View>
           
-          {/* Swipe indicators */}
-          <Animated.View 
-            style={[
-              styles.deleteIndicator,
-              {
-                opacity: translateX.interpolate({
-                  inputRange: [-200, -50, 0],
-                  outputRange: [1, 0.7, 0],
-                  extrapolate: 'clamp',
-                }),
-              },
-            ]}
-          >
-            <Text style={styles.indicatorText}>DELETE</Text>
-          </Animated.View>
-          
-          <Animated.View 
-            style={[
-              styles.keepIndicator,
-              {
-                opacity: translateX.interpolate({
-                  inputRange: [0, 50, 200],
-                  outputRange: [0, 0.7, 1],
-                  extrapolate: 'clamp',
-                }),
-              },
-            ]}
-          >
-            <Text style={styles.indicatorText}>KEEP</Text>
-          </Animated.View>
+          {/* Swipe indicators - only show when not zooming */}
+          {!isZooming && (
+            <>
+              <Animated.View 
+                style={[
+                  styles.deleteIndicator,
+                  {
+                    opacity: translateX.interpolate({
+                      inputRange: [-200, -50, 0],
+                      outputRange: [1, 0.7, 0],
+                      extrapolate: 'clamp',
+                    }),
+                  },
+                ]}
+              >
+                <MaterialIcons name="delete" size={80} color="#ffffff" />
+              </Animated.View>
+              
+              <Animated.View 
+                style={[
+                  styles.keepIndicator,
+                  {
+                    opacity: translateX.interpolate({
+                      inputRange: [0, 50, 200],
+                      outputRange: [0, 0.7, 1],
+                      extrapolate: 'clamp',
+                    }),
+                  },
+                ]}
+              >
+                <Ionicons name="heart" size={80} color="#ffffff" />
+              </Animated.View>
+            </>
+          )}
         </Animated.View>
-      </View>
-
-      {/* Action Buttons */}
-      <View style={styles.actionsContainer}>
-        <TouchableOpacity 
-          style={[styles.actionButton, styles.deleteButton]} 
-          onPress={() => handleSwipeAction('left', true)}
-        >
-          <Text style={styles.actionButtonText}>Delete</Text>
-          <Ionicons name="trash" size={20} color="#ffffff" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.actionButton, styles.keepButton]} 
-          onPress={() => handleSwipeAction('right', true)}
-        >
-          <Text style={styles.actionButtonText}>Keep</Text>
-          <Ionicons name="heart" size={20} color="#ffffff" />
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -787,6 +927,10 @@ const styles = StyleSheet.create({
   currentPhotoWrapper: {
     zIndex: 2,
   },
+  imageContainer: {
+    width: '100%',
+    height: '100%',
+  },
   photo: {
     width: '100%',
     height: '100%',
@@ -808,56 +952,62 @@ const styles = StyleSheet.create({
   },
   deleteIndicator: {
     position: 'absolute',
-    top: 40,
-    left: 40,
-    backgroundColor: 'rgba(255, 71, 87, 0.95)',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 25,
-    transform: [{ rotate: '-25deg' }],
+    left: '50%',
+    top: '50%',
+    backgroundColor: 'rgba(255, 71, 87, 0.9)',
+    padding: 20,
+    borderRadius: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ translateX: -60 }, { translateY: -60 }],
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 8,
   },
   keepIndicator: {
     position: 'absolute',
-    top: 40,
-    right: 40,
-    backgroundColor: 'rgba(46, 213, 115, 0.95)',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 25,
-    transform: [{ rotate: '25deg' }],
+    left: '50%',
+    top: '50%',
+    backgroundColor: 'rgba(46, 213, 115, 0.9)',
+    padding: 20,
+    borderRadius: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ translateX: -60 }, { translateY: -60 }],
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 8,
   },
   indicatorText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
+    letterSpacing: 1.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
-  actionsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+  instructionsContainer: {
+    alignItems: 'center',
     paddingHorizontal: 40,
     paddingVertical: 30,
     paddingBottom: 50,
-    gap: 20,
   },
-  actionButton: {
-    flex: 1,
-    paddingVertical: 18,
-    borderRadius: 25,
-    alignItems: 'center',
-    minHeight: 75,
-    justifyContent: 'center',
-  },
-  deleteButton: {
-    backgroundColor: '#ff4757',
-  },
-  keepButton: {
-    backgroundColor: '#2ed573',
-  },
-  actionButtonText: {
+  instructionsText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 2,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    textShadowRadius: 2,
   },
   backButton: {
     backgroundColor: '#4263eb',
