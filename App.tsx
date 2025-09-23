@@ -82,6 +82,7 @@ export default function App() {
       {mode === 'favorites' && (
         <FavoritesManager 
           onBack={handleBack}
+          onStartSwiping={() => setMode('swipe')}
         />
       )}
       <StatusBar style="auto" />

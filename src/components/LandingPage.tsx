@@ -16,12 +16,19 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const BUILD_TAG = 'Build: Sep 22, 2025 9:55p';
 
 interface LandingPageProps {
-  onFeatureSelect: (feature: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar') => void;
+  onFeatureSelect: (feature: 'swipe' | 'favorites' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'similar') => void;
 }
 
 const LandingPage = (props: LandingPageProps) => {
   const { onFeatureSelect } = props;
   const mainFeatures = [
+    { 
+      id: 'favorites', 
+      iconType: 'Ionicons',
+      iconName: 'heart',
+      title: 'Favorites', 
+      subtitle: 'Your swiped best shots' 
+    },
     { 
       id: 'blurry', 
       iconType: 'MaterialIcons',
@@ -49,13 +56,6 @@ const LandingPage = (props: LandingPageProps) => {
       iconName: 'palette',
       title: 'Color Sorting', 
       subtitle: 'Organize by color palette' 
-    },
-    { 
-      id: 'favorites', 
-      iconType: 'Ionicons',
-      iconName: 'heart',
-      title: 'Favorites', 
-      subtitle: 'Mark your best shots' 
     },
     { 
       id: 'similar', 

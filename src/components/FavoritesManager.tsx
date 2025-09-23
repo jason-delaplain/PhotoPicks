@@ -36,9 +36,10 @@ interface Photo {
 
 interface FavoritesManagerProps {
   onBack: () => void;
+  onStartSwiping: () => void;
 }
 
-const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onBack }) => {
+const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onBack, onStartSwiping }) => {
   const [favoritePhotos, setFavoritePhotos] = useState<Photo[]>([]);
   const [localUris, setLocalUris] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -253,8 +254,8 @@ const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onBack }) => {
           <Text style={styles.emptySubtitle}>
             Start marking photos as favorites in Swipe Mode by tapping the heart icon
           </Text>
-          <TouchableOpacity style={styles.startButton} onPress={onBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.9}>
-            <LinearGradient colors={["#4f46e5", "#7c3aed"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ paddingHorizontal: 24, paddingVertical: 12, borderRadius: 25 }}>
+          <TouchableOpacity style={styles.startButton} onPress={onStartSwiping} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.9}>
+            <LinearGradient colors={["#4f46e5", "#7c3aed"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.startButtonBg}>
               <Text style={styles.startButtonText}>Start Swiping</Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -356,11 +357,13 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   startButton: {
-    backgroundColor: '#4dabf7',
+    marginTop: 24,
+    borderRadius: 25,
+  },
+  startButtonBg: {
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 25,
-    marginTop: 24,
   },
   startButtonText: {
     color: '#ffffff',
