@@ -11,11 +11,23 @@ import {
   Alert,
   Linking,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+// Pinch-to-zoom removed for the swipe page
+import { LinearGradient } from 'expo-linear-gradient';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import { FavoritesUtils } from '../utils/favoritesUtils';
+import resolveMediaUri from '../utils/resolveMediaUri';
+import * as Haptics from 'expo-haptics';
+
+// Toast timing constants (ms)
+const TOAST_FADE_IN = 120;
+const TOAST_VISIBLE_MS = 700;
+const TOAST_FADE_OUT = 180;
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
@@ -38,25 +50,25 @@ interface SwipePhotoSwiperProps {
 
 const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBack }) => {
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [resolvedUris, setResolvedUris] = useState<Record<string, string>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [scanningProgress, setScanningProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [keptCount, setKeptCount] = useState(0);
   const [deletedCount, setDeletedCount] = useState(0);
   const [photosMarkedForDeletion, setPhotosMarkedForDeletion] = useState<Photo[]>([]); // Track photos marked for deletion
+  const [isCurrentPhotoFavorite, setIsCurrentPhotoFavorite] = useState(false); // Track favorite status
+  const keptToastOpacity = useRef(new Animated.Value(0)).current;
+  const deletedToastOpacity = useRef(new Animated.Value(0)).current;
   
-  const translateX = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(1)).current;
-  const zoomScale = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current; // swipe X
+  const translateY = useRef(new Animated.Value(0)).current; // swipe Y (rare)
   const rotation = useRef(new Animated.Value(0)).current;
   const nextPhotoScale = useRef(new Animated.Value(0.9)).current;
+  // Haptic on threshold crossing
+  const hasCrossedThresholdRef = useRef(false);
   
-  // Track pinch gesture state
-  const [isZooming, setIsZooming] = useState(false);
-  const [initialDistance, setInitialDistance] = useState(0);
-  const [initialScale, setInitialScale] = useState(1);
-  const [currentZoomScale, setCurrentZoomScale] = useState(1);
-  const [lastTap, setLastTap] = useState<number | null>(null);
+  // Zoom removed: no pinch or double-tap state
 
   useEffect(() => {
     console.log('Loading device photos');
@@ -67,6 +79,18 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
   useEffect(() => {
     console.log(`Photos state changed: now ${photos.length} photos`);
   }, [photos]);
+
+  // Check favorite status when current photo changes
+  useEffect(() => {
+    const checkFavoriteStatus = async () => {
+      if (photos.length > 0 && currentIndex < photos.length) {
+        const currentPhoto = photos[currentIndex];
+        const isFavorite = await FavoritesUtils.isFavorite(currentPhoto.id);
+        setIsCurrentPhotoFavorite(isFavorite);
+      }
+    };
+    checkFavoriteStatus();
+  }, [currentIndex, photos]);
 
   const handleBackPress = () => {
     if (photosMarkedForDeletion.length > 0) {
@@ -141,18 +165,77 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
         loadSamplePhotos();
         return;
       }
+      // Determine total count if available
+      let totalCount: number | null = null;
+      try {
+        const head = await MediaLibrary.getAssetsAsync({ first: 1, mediaType: 'photo', sortBy: 'creationTime' });
+        totalCount = (head as any).totalCount ?? null;
+      } catch {}
+      setScanningProgress({ done: 0, total: totalCount ?? 0 });
 
-      // Get photos from device
+      // Get photos from device in pages
       console.log('Getting assets from MediaLibrary...');
-      const mediaResult = await MediaLibrary.getAssetsAsync({
-        mediaType: 'photo',
-        first: 20, // Reduced for testing
-        sortBy: 'creationTime'
-      });
+      let after: string | undefined = undefined;
+      let hasNext = true;
+      const CHUNK = 100;
+      const aggregated: Photo[] = [];
+      if (totalCount === 0) {
+        // If totalCount is 0 from head call, try one full query to confirm
+        const check = await MediaLibrary.getAssetsAsync({ mediaType: 'photo', first: 1, sortBy: 'creationTime' });
+        if (!check.assets || check.assets.length === 0) {
+          console.log('No device photos found, loading sample photos');
+          Alert.alert(
+            'No Photos Found',
+            'No photos were found on your device. Loading sample photos for demo.',
+            [{ text: 'OK' }]
+          );
+          loadSamplePhotos();
+          return;
+        }
+      }
 
-      console.log(`Found ${mediaResult.assets.length} assets from MediaLibrary`);
+      while (hasNext) {
+        const res = await MediaLibrary.getAssetsAsync({
+          mediaType: 'photo',
+          first: CHUNK,
+          sortBy: 'creationTime',
+          after,
+        });
+        const assets = res.assets || [];
+        hasNext = !!res.hasNextPage;
+        after = res.endCursor ?? undefined;
+        console.log(`Fetched page: ${assets.length} assets`);
 
-      if (mediaResult.assets.length === 0) {
+        for (const asset of assets) {
+          try {
+            let uri = asset.uri;
+            try {
+              const resolved = await resolveMediaUri(asset);
+              uri = resolved || asset.uri;
+            } catch (e) {
+              uri = asset.uri;
+            }
+
+            aggregated.push({
+              uri,
+              filename: asset.filename,
+              id: asset.id,
+              mediaType: asset.mediaType as any,
+              width: asset.width,
+              height: asset.height,
+              creationTime: asset.creationTime as any,
+              modificationTime: asset.modificationTime as any,
+            });
+            setScanningProgress(prev => ({ done: prev.done + 1, total: totalCount ?? Math.max(prev.done + 1, prev.total) }));
+          } catch (error) {
+            console.warn('Error processing asset', asset.id, error);
+          }
+        }
+      }
+
+      console.log(`Found ${aggregated.length} assets from MediaLibrary`);
+
+      if (aggregated.length === 0) {
         console.log('No device photos found, loading sample photos');
         Alert.alert(
           'No Photos Found',
@@ -162,43 +245,15 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
         loadSamplePhotos();
         return;
       }
-
-      // Convert MediaLibrary assets to our Photo interface with proper URIs
-      const devicePhotos: Photo[] = await Promise.all(
-        mediaResult.assets.map(async (asset) => {
-          try {
-            // Get asset info to ensure we have a proper URI
-            const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
-            return {
-              uri: assetInfo.localUri || assetInfo.uri,
-              filename: asset.filename,
-              id: asset.id,
-              mediaType: asset.mediaType,
-              width: asset.width,
-              height: asset.height,
-              creationTime: asset.creationTime,
-              modificationTime: asset.modificationTime
-            };
-          } catch (error) {
-            console.warn('Error getting asset info for', asset.filename, error);
-            // Fallback to original asset
-            return {
-              uri: asset.uri,
-              filename: asset.filename,
-              id: asset.id,
-              mediaType: asset.mediaType,
-              width: asset.width,
-              height: asset.height,
-              creationTime: asset.creationTime,
-              modificationTime: asset.modificationTime
-            };
-          }
-        })
-      );
-
-      console.log(`Total device photos loaded: ${devicePhotos.length}`);
-      setPhotos(devicePhotos);
-      console.log(`Photos state updated to ${devicePhotos.length} photos`);
+      console.log(`Total device photos loaded: ${aggregated.length}`);
+      setPhotos(aggregated);
+      // Build resolved map directly from aggregated
+      const map: Record<string, string> = {};
+      for (const p of aggregated) {
+        map[p.id] = p.uri;
+      }
+      setResolvedUris(map);
+      console.log(`Photos state updated to ${aggregated.length} photos`);
       setLoading(false);
     } catch (error) {
       console.error('Error loading photos:', error);
@@ -262,6 +317,11 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     
     const action = direction === 'left' ? 'delete' : 'keep';
     console.log(`Action: ${action}`);
+    // Haptic feedback
+    try {
+      if (action === 'delete') await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      else await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
     
     // Update counters
     if (action === 'delete') {
@@ -289,11 +349,28 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
         setPhotosMarkedForDeletion(prev => [...prev, currentPhoto]);
         console.log(`Photo marked for deletion: ${currentPhoto.filename}`);
       }
+      // Show compact 'Deleted' toast
+      try {
+        deletedToastOpacity.setValue(0);
+        Animated.sequence([
+          Animated.timing(deletedToastOpacity, { toValue: 1, duration: TOAST_FADE_IN, useNativeDriver: true }),
+          Animated.delay(TOAST_VISIBLE_MS),
+          Animated.timing(deletedToastOpacity, { toValue: 0, duration: TOAST_FADE_OUT, useNativeDriver: true }),
+        ]).start();
+      } catch {}
     } else {
       setKeptCount(prev => {
         console.log(`Updating kept count from ${prev} to ${prev + 1}`);
         return prev + 1;
       });
+      try {
+        keptToastOpacity.setValue(0);
+        Animated.sequence([
+          Animated.timing(keptToastOpacity, { toValue: 1, duration: TOAST_FADE_IN, useNativeDriver: true }),
+          Animated.delay(TOAST_VISIBLE_MS),
+          Animated.timing(keptToastOpacity, { toValue: 0, duration: TOAST_FADE_OUT, useNativeDriver: true }),
+        ]).start();
+      } catch {}
     }
     
     onPhotoAction(action, currentPhoto);
@@ -322,11 +399,8 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
       setCurrentIndex(prev => prev + 1);
       translateX.setValue(0);
       translateY.setValue(0);
-      scale.setValue(1);
-      zoomScale.setValue(1);
       rotation.setValue(0);
       nextPhotoScale.setValue(0.9);
-      setCurrentZoomScale(1);
     });
   };
 
@@ -351,7 +425,16 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
         // iOS: Go directly to share dialog
         const isAvailable = await Sharing.isAvailableAsync();
         if (isAvailable) {
-          await Sharing.shareAsync(currentPhoto.uri, {
+          // Ensure we pass a file:// or http(s) URI, not ph://
+          let shareUri = currentPhoto.uri;
+          try {
+            const resolved = await resolveMediaUri(currentPhoto);
+            shareUri = resolved || currentPhoto.uri;
+          } catch (e) {
+            // ignore and use currentPhoto.uri
+          }
+
+          await Sharing.shareAsync(shareUri, {
             dialogTitle: 'Share Photo',
             mimeType: 'image/png',
             UTI: 'public.image',
@@ -371,8 +454,14 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
               onPress: async () => {
                 try {
                   const isAvailable = await Sharing.isAvailableAsync();
-                  if (isAvailable) {
-                    await Sharing.shareAsync(currentPhoto.uri, {
+                    if (isAvailable) {
+                      let shareUri = currentPhoto.uri;
+                      try {
+                        const resolved = await resolveMediaUri(currentPhoto);
+                        shareUri = resolved || currentPhoto.uri;
+                      } catch (e) {}
+
+                      await Sharing.shareAsync(shareUri, {
                       dialogTitle: 'Choose App',
                       mimeType: 'image/png',
                       UTI: 'public.image',
@@ -391,8 +480,14 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
               onPress: async () => {
                 try {
                   const isAvailable = await Sharing.isAvailableAsync();
-                  if (isAvailable) {
-                    await Sharing.shareAsync(currentPhoto.uri, {
+                    if (isAvailable) {
+                      let shareUri = currentPhoto.uri;
+                      try {
+                        const resolved = await resolveMediaUri(currentPhoto);
+                        shareUri = resolved || currentPhoto.uri;
+                      } catch (e) {}
+
+                      await Sharing.shareAsync(shareUri, {
                       dialogTitle: 'Choose Photo Editor',
                       mimeType: 'image/png',
                       UTI: 'public.image',
@@ -415,182 +510,104 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     }
   };
 
-  // Utility functions for pinch gesture detection
-  const getDistance = (touches: any[]) => {
-    if (touches.length < 2) return 0;
-    const [touch1, touch2] = touches;
-    const dx = touch1.pageX - touch2.pageX;
-    const dy = touch1.pageY - touch2.pageY;
-    return Math.sqrt(dx * dx + dy * dy);
-  };
-
-  const getCenter = (touches: any[]) => {
-    if (touches.length < 2) return { x: 0, y: 0 };
-    const [touch1, touch2] = touches;
-    return {
-      x: (touch1.pageX + touch2.pageX) / 2,
-      y: (touch1.pageY + touch2.pageY) / 2,
-    };
-  };
-
-  const resetZoom = () => {
-    Animated.parallel([
-      Animated.spring(zoomScale, {
-        toValue: 1,
-        useNativeDriver: true,
-      }),
-      Animated.spring(translateX, {
-        toValue: 0,
-        useNativeDriver: true,
-      }),
-      Animated.spring(translateY, {
-        toValue: 0,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    setCurrentZoomScale(1);
-  };
-
-  const handleDoubleTap = () => {
-    const now = Date.now();
-    const DOUBLE_PRESS_DELAY = 300;
+  const handleToggleFavorite = async () => {
+    if (currentIndex >= photos.length) return;
     
-    if (lastTap && (now - lastTap) < DOUBLE_PRESS_DELAY) {
-      // Double tap detected
-      console.log('Double tap detected - resetting zoom');
-      resetZoom();
-      setLastTap(null);
-    } else {
-      setLastTap(now);
+    const currentPhoto = photos[currentIndex];
+    
+    try {
+      const newFavoriteStatus = await FavoritesUtils.toggleFavorite(currentPhoto.id);
+      try {
+        await Haptics.impactAsync(newFavoriteStatus ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Rigid);
+      } catch {}
+      setIsCurrentPhotoFavorite(newFavoriteStatus);
+      
+      const message = newFavoriteStatus 
+        ? `Added "${currentPhoto.filename || 'Photo'}" to favorites ❤️`
+        : `Removed "${currentPhoto.filename || 'Photo'}" from favorites`;
+        
+      // Show a brief toast-like message
+      Alert.alert(
+        newFavoriteStatus ? 'Added to Favorites' : 'Removed from Favorites',
+        message,
+        [{ text: 'OK' }],
+        { cancelable: true }
+      );
+      
+      console.log(message);
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      Alert.alert('Error', 'Failed to update favorite status.');
     }
   };
 
+  // No zoom helpers on this page
+
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: (evt) => {
-      // Always capture if multiple touches (pinch)
-      return evt.nativeEvent.touches.length >= 1;
+      const touches = evt.nativeEvent.touches;
+      return touches.length === 1;
     },
     onMoveShouldSetPanResponder: (evt, gestureState) => {
       const touches = evt.nativeEvent.touches;
-      
-      // If multiple touches, it's a pinch gesture
-      if (touches.length >= 2) {
-        return true;
-      }
-      
-      // For single touch, only capture horizontal swipes (existing behavior)
+      if (touches.length !== 1) return false;
       return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
     },
-    
-    onPanResponderGrant: (evt) => {
-      const touches = evt.nativeEvent.touches;
-      
-      if (touches.length >= 2) {
-        // Pinch gesture started
-        setIsZooming(true);
-        const distance = getDistance(touches);
-        setInitialDistance(distance);
-        setInitialScale(currentZoomScale);
-        console.log('Pinch gesture started');
-      } else {
-        // Single finger gesture (swipe)
-        setIsZooming(false);
-        Animated.spring(scale, {
-          toValue: 0.95,
-          useNativeDriver: true,
-        }).start();
+    onPanResponderGrant: () => {
+      hasCrossedThresholdRef.current = false;
+    },
+    onPanResponderMove: (_evt, gestureState) => {
+      translateX.setValue(gestureState.dx);
+      // Stronger rotation response; final mapping still clamped in interpolate
+      rotation.setValue(gestureState.dx);
+      // Scale next photo faster using threshold-based progress and allow slight overshoot up to 1.05
+      const progress = Math.min(1, Math.abs(gestureState.dx) / SWIPE_THRESHOLD);
+      nextPhotoScale.setValue(0.88 + (progress * 0.17));
+
+      // Haptic feedback when crossing the swipe threshold
+      const crossed = Math.abs(gestureState.dx) > SWIPE_THRESHOLD;
+      if (crossed && !hasCrossedThresholdRef.current) {
+        hasCrossedThresholdRef.current = true;
+        try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+      } else if (!crossed && hasCrossedThresholdRef.current) {
+        // Reset if user moves back below threshold so they can feel it again if they cross once more
+        hasCrossedThresholdRef.current = false;
       }
     },
-
-    onPanResponderMove: (evt, gestureState) => {
-      const touches = evt.nativeEvent.touches;
-      
-      if (touches.length >= 2 && isZooming) {
-        // Handle pinch-to-zoom
-        const distance = getDistance(touches);
-        if (initialDistance > 0) {
-          const scaleChange = distance / initialDistance;
-          let newScale = initialScale * scaleChange;
-          
-          // Limit zoom between 0.5x and 3x
-          newScale = Math.max(0.5, Math.min(3, newScale));
-          
-          zoomScale.setValue(newScale);
-          setCurrentZoomScale(newScale);
-          
-          // If zoomed in, allow panning
-          if (newScale > 1) {
-            const center = getCenter(touches);
-            // Simple panning - can be enhanced for better UX
-            translateX.setValue(gestureState.dx * 0.5);
-            translateY.setValue(gestureState.dy * 0.5);
-          }
-        }
-      } else if (touches.length === 1 && !isZooming) {
-        // Handle single finger swipe (existing behavior)
-        translateX.setValue(gestureState.dx);
-        rotation.setValue(gestureState.dx * 0.05);
-        
-        // Scale next photo based on current photo movement
-        const progress = Math.abs(gestureState.dx) / SCREEN_WIDTH;
-        nextPhotoScale.setValue(0.9 + (progress * 0.1));
-      }
-    },
-
-    onPanResponderRelease: (evt, gestureState) => {
-      const touches = evt.nativeEvent.touches;
-      
-      if (isZooming) {
-        // End pinch gesture
-        setIsZooming(false);
-        console.log('Pinch gesture ended');
-        
-        // If zoom is close to 1, snap back to 1
-        if (Math.abs(currentZoomScale - 1) < 0.1) {
-          resetZoom();
-        }
+    onPanResponderRelease: (_evt, gestureState) => {
+      console.log(`Pan responder release: dx=${gestureState.dx}, dy=${gestureState.dy}, SWIPE_THRESHOLD=${SWIPE_THRESHOLD}`);
+      if (Math.abs(gestureState.dx) > SWIPE_THRESHOLD) {
+        const direction = gestureState.dx > 0 ? 'right' : 'left';
+        console.log(`Swipe detected! Direction: ${direction}`);
+        handleSwipeAction(direction);
       } else {
-        // Handle single finger release (existing swipe behavior)
-        console.log(`Pan responder release: dx=${gestureState.dx}, dy=${gestureState.dy}, SWIPE_THRESHOLD=${SWIPE_THRESHOLD}`);
-        
-        Animated.spring(scale, {
-          toValue: 1,
-          useNativeDriver: true,
-        }).start();
-
-        if (Math.abs(gestureState.dx) > SWIPE_THRESHOLD) {
-          const direction = gestureState.dx > 0 ? 'right' : 'left';
-          console.log(`Swipe detected! Direction: ${direction}`);
-          
-          // Reset zoom before swiping to next photo
-          resetZoom();
-          handleSwipeAction(direction);
-        } else {
-          console.log('Swipe not strong enough, snapping back');
-          // Snap back to center
-          Animated.parallel([
-            Animated.spring(translateX, {
-              toValue: 0,
-              useNativeDriver: true,
-            }),
-            Animated.spring(rotation, {
-              toValue: 0,
-              useNativeDriver: true,
-            }),
-            Animated.spring(nextPhotoScale, {
-              toValue: 0.9,
-              useNativeDriver: true,
-            }),
-          ]).start();
-        }
+        console.log('Swipe not strong enough, snapping back');
+        Animated.parallel([
+          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }),
+          Animated.spring(rotation, { toValue: 0, useNativeDriver: true }),
+          Animated.spring(nextPhotoScale, { toValue: 0.9, useNativeDriver: true }),
+        ]).start();
       }
     },
   });
 
+  const ProgressBar = ({ progress }: { progress: number }) => (
+    <View style={styles.progressBarContainer}>
+      <View style={[styles.progressBarFill, { width: `${Math.max(0, Math.min(100, Math.round(progress * 100)))}%` }]} />
+    </View>
+  );
+
   if (loading) {
+    const total = scanningProgress.total;
+    const done = scanningProgress.done;
+    const ratio = total > 0 ? done / total : 0;
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading photos...</Text>
+  <ActivityIndicator size="large" color="#7c3aed" />
+        <Text style={styles.loadingText}>
+          {total > 0 ? `Scanning ${done}/${total}` : `Scanning ${done}`}
+        </Text>
+        <ProgressBar progress={ratio} />
       </View>
     );
   }
@@ -644,41 +661,65 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
   const nextPhoto = photos[currentIndex + 1];
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {/* Header with Navigation */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButtonSmall} onPress={handleBackPress}>
-          <Text style={styles.backButtonSmallText}>← Back</Text>
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.counter}>
-            {currentIndex + 1} / {photos.length}
-          </Text>
-          <View style={styles.statsRow}>
-            <View style={styles.miniStatContainer}>
-              <Ionicons name="heart" size={12} color="#2ed573" />
-              <Text style={styles.miniStat}> {keptCount}</Text>
-            </View>
-            <View style={styles.miniStatContainer}>
-              <Ionicons name="trash" size={12} color="#ff4757" />
-              <Text style={styles.miniStat}> {deletedCount}</Text>
+      <View style={styles.headerWrapper}>
+        <LinearGradient colors={["#0f1422", "#0a0e1a"]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.headerGradient} />
+        <View style={styles.header}>
+          <TouchableOpacity style={[styles.backButtonSmall, { paddingHorizontal: 12, paddingVertical: 8 }]} onPress={handleBackPress} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.85}>
+            <Text style={styles.backButtonSmallText}>← Back</Text>
+          </TouchableOpacity>
+          <View style={styles.headerCenter}>
+            <Text style={styles.counter}>
+              {currentIndex + 1} / {photos.length}
+            </Text>
+            <View style={styles.statsRow}>
+              <View style={styles.miniStatContainer}>
+                <Ionicons name="heart" size={12} color="#2ed573" />
+                <Text style={styles.miniStat}> {keptCount}</Text>
+              </View>
+              <View style={styles.miniStatContainer}>
+                <Ionicons name="trash" size={12} color="#ff4757" />
+                <Text style={styles.miniStat}> {deletedCount}</Text>
+              </View>
             </View>
           </View>
+          <View style={styles.headerRight}>
+            <TouchableOpacity 
+              style={[styles.favoriteButton, isCurrentPhotoFavorite && styles.favoriteButtonActive]} 
+              onPress={handleToggleFavorite}
+              activeOpacity={0.85}
+            >
+              <Ionicons 
+                name={isCurrentPhotoFavorite ? "heart" : "heart-outline"} 
+                size={20} 
+                color={isCurrentPhotoFavorite ? "#ff4757" : "#ffffff"} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.editButton} onPress={handleEditPhoto} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.85}>
+              <LinearGradient colors={["#4f46e5", "#7c3aed"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.editButtonBg}>
+                <Text style={styles.editButtonText}>
+                  {Platform.select({ ios: 'Share', android: 'Share', default: 'Share' })}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
         </View>
-        <TouchableOpacity style={styles.editButton} onPress={handleEditPhoto}>
-          <Text style={styles.editButtonText}>
-            {Platform.select({ ios: 'Share', android: 'Share', default: 'Share' })}
-          </Text>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.titleContainer}>
-        <Text style={styles.title}>PhotoPicks - Swipe Mode</Text>
-        <Text style={styles.subtitle}>Swipe left to delete • Swipe right to keep • Pinch to zoom</Text>
+        <Text style={styles.title}>Swipe Photo Organizer</Text>
+  <Text style={styles.subtitle}>Swipe left to delete • Swipe right to keep</Text>
       </View>
 
       {/* Photo Stack Container */}
       <View style={styles.photoContainer}>
+        <Animated.View style={[styles.keptToast, { opacity: keptToastOpacity }]} pointerEvents="none">
+          <Text style={styles.keptToastText}>Kept</Text>
+        </Animated.View>
+        <Animated.View style={[styles.deletedToast, { opacity: deletedToastOpacity }]} pointerEvents="none">
+          <Text style={styles.deletedToastText}>Deleted</Text>
+        </Animated.View>
         {/* Next Photo (Background) */}
         {nextPhoto && (
           <Animated.View
@@ -690,7 +731,7 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
               },
             ]}
           >
-            <Image source={{ uri: nextPhoto.uri }} style={styles.photo} />
+            <Image source={{ uri: resolvedUris[nextPhoto.id] || nextPhoto.uri }} style={styles.photo} />
           </Animated.View>
         )}
         
@@ -703,10 +744,10 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
               transform: [
                 { translateX },
                 { translateY },
-                { scale: Animated.multiply(scale, zoomScale) },
                 { rotate: rotation.interpolate({
-                    inputRange: [-200, 0, 200],
-                    outputRange: ['-15deg', '0deg', '15deg'],
+                    inputRange: [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
+                    outputRange: ['-18deg', '0deg', '18deg'],
+                    extrapolate: 'clamp',
                   })
                 },
               ],
@@ -714,56 +755,48 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
           ]}
           {...panResponder.panHandlers}
         >
-          <TouchableOpacity 
-            activeOpacity={1} 
-            onPress={handleDoubleTap}
-            style={styles.imageContainer}
-          >
-            <Image source={{ uri: currentPhoto.uri }} style={styles.photo} />
-          </TouchableOpacity>
+          <View style={styles.imageContainer}>
+            <Image source={{ uri: resolvedUris[currentPhoto.id] || currentPhoto.uri }} style={styles.photo} />
+          </View>
           
           {/* Filename overlay */}
           <View style={styles.filenameOverlay}>
             <Text style={styles.filenameText}>{currentPhoto.filename}</Text>
           </View>
           
-          {/* Swipe indicators - only show when not zooming */}
-          {!isZooming && (
-            <>
-              <Animated.View 
-                style={[
-                  styles.deleteIndicator,
-                  {
-                    opacity: translateX.interpolate({
-                      inputRange: [-200, -50, 0],
-                      outputRange: [1, 0.7, 0],
-                      extrapolate: 'clamp',
-                    }),
-                  },
-                ]}
-              >
-                <MaterialIcons name="delete" size={80} color="#ffffff" />
-              </Animated.View>
-              
-              <Animated.View 
-                style={[
-                  styles.keepIndicator,
-                  {
-                    opacity: translateX.interpolate({
-                      inputRange: [0, 50, 200],
-                      outputRange: [0, 0.7, 1],
-                      extrapolate: 'clamp',
-                    }),
-                  },
-                ]}
-              >
-                <Ionicons name="heart" size={80} color="#ffffff" />
-              </Animated.View>
-            </>
-          )}
+          {/* Swipe indicators */}
+          <Animated.View 
+            style={[
+              styles.deleteIndicator,
+              {
+                opacity: translateX.interpolate({
+                  inputRange: [-200, -50, 0],
+                  outputRange: [1, 0.7, 0],
+                  extrapolate: 'clamp',
+                }),
+              },
+            ]}
+          >
+            <MaterialIcons name="thumb-down" size={80} color="#ffffff" />
+          </Animated.View>
+          
+          <Animated.View 
+            style={[
+              styles.keepIndicator,
+              {
+                opacity: translateX.interpolate({
+                  inputRange: [0, 50, 200],
+                  outputRange: [0, 0.7, 1],
+                  extrapolate: 'clamp',
+                }),
+              },
+            ]}
+          >
+            <MaterialIcons name="thumb-up" size={80} color="#ffffff" />
+          </Animated.View>
         </Animated.View>
       </View>
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -790,6 +823,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     textAlign: 'center',
   },
+  progressBarContainer: { height: 8, backgroundColor: '#1a2030', borderRadius: 4, overflow: 'hidden', marginTop: 12, width: '70%' },
+  progressBarFill: { height: 8, backgroundColor: '#7c3aed' },
   completedText: {
     color: '#ffffff',
     fontSize: 28,
@@ -843,8 +878,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: 50,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingBottom: 10,
+  },
+  headerWrapper: {
+    position: 'relative',
+  },
+  headerGradient: {
+    ...StyleSheet.absoluteFillObject,
   },
   headerCenter: {
     alignItems: 'center',
@@ -854,15 +895,18 @@ const styles = StyleSheet.create({
     minWidth: 60,
   },
   backButtonSmallText: {
-    color: '#74c0fc',
+    color: '#a78bfa',
     fontSize: 16,
   },
   editButton: {
-    backgroundColor: '#4263eb',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
     borderRadius: 20,
     minWidth: 60,
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  editButtonBg: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     alignItems: 'center',
   },
   editButtonText: {
@@ -888,6 +932,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  favoriteButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'transparent',
+  },
+  favoriteButtonActive: {
+    backgroundColor: 'rgba(255, 71, 87, 0.2)',
+  },
   titleContainer: {
     alignItems: 'center',
     paddingBottom: 20,
@@ -898,7 +955,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   subtitle: {
-    color: '#74c0fc',
+    color: '#a78bfa',
     fontSize: 14,
     marginTop: 5,
   },
@@ -906,14 +963,14 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
   photoWrapper: {
-    width: SCREEN_WIDTH * 0.85,
+    width: SCREEN_WIDTH - 32, // full width minus 16dp padding each side
     height: SCREEN_HEIGHT * 0.5,
     borderRadius: 20,
     overflow: 'hidden',
-    shadowColor: '#4263eb',
+  shadowColor: '#6d28d9',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
     shadowRadius: 20,
@@ -935,6 +992,37 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
+  },
+  keptToast: {
+    position: 'absolute',
+    bottom: 20,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(10,14,26,0.9)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    zIndex: 10,
+  },
+  keptToastText: {
+    color: '#2ed573',
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  deletedToast: {
+    position: 'absolute',
+    bottom: 20,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(10,14,26,0.9)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 16,
+    zIndex: 10,
+    marginTop: 8,
+  },
+  deletedToastText: {
+    color: '#ff4757',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   filenameOverlay: {
     position: 'absolute',
@@ -1010,7 +1098,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   backButton: {
-    backgroundColor: '#4263eb',
+    backgroundColor: '#7c3aed',
     paddingHorizontal: 30,
     paddingVertical: 15,
     borderRadius: 25,

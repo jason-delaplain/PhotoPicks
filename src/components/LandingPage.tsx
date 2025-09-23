@@ -7,12 +7,16 @@ import {
   ScrollView,
   Dimensions,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// Simple visible build tag to confirm the latest bundle is loaded on device
+const BUILD_TAG = 'Build: Sep 22, 2025 9:55p';
 
 interface LandingPageProps {
-  onFeatureSelect: (feature: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar') => void;
+  onFeatureSelect: (feature: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar' | 'debug') => void;
 }
 
 const LandingPage = (props: LandingPageProps) => {
@@ -60,13 +64,20 @@ const LandingPage = (props: LandingPageProps) => {
       title: 'Similar Images', 
       subtitle: 'Group related photos' 
     },
+    {
+      id: 'debug',
+      iconType: 'Ionicons',
+      iconName: 'bug',
+      title: 'Dev Tools',
+      subtitle: 'Run diagnostics & debug utilities'
+    }
   ];
 
   const renderIcon = (iconType: string, iconName: string) => {
     const props = {
       name: iconName as any,
       size: 32,
-      color: '#4dabf7'
+      color: '#7c3aed'
     };
 
     switch (iconType) {
@@ -82,15 +93,17 @@ const LandingPage = (props: LandingPageProps) => {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <SafeAreaView style={styles.container}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <View style={styles.titleContainer}>
-          <Ionicons name="camera" size={40} color="#4dabf7" style={styles.titleIcon} />
+          <Ionicons name="camera" size={40} color="#7c3aed" style={styles.titleIcon} />
           <Text style={styles.title}>PhotoPicks</Text>
         </View>
-        <Text style={styles.subtitle}>AI-Powered Photo Organization</Text>
+  <Text style={styles.subtitle}>Advanced Photo Organization</Text>
+  <Text style={styles.buildTag}>{BUILD_TAG}</Text>
         <Text style={styles.description}>
-          Organize your photos with smart AI assistance
+          Organize your photos with smart tools
         </Text>
       </View>
 
@@ -98,18 +111,27 @@ const LandingPage = (props: LandingPageProps) => {
       <TouchableOpacity 
         style={styles.mainButton}
         onPress={() => onFeatureSelect('swipe')}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        activeOpacity={0.9}
       >
-        <View style={styles.mainButtonContent}>
-          <Ionicons name="swap-horizontal" size={48} color="#ffffff" style={styles.mainButtonIcon} />
-          <Text style={styles.mainButtonTitle}>Swipe Photos</Text>
-          <Text style={styles.mainButtonSubtitle}>Swipe through all your photos</Text>
-        </View>
+        <LinearGradient
+          colors={["#4f46e5", "#7c3aed"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.mainButtonGradient}
+        >
+          <View style={styles.mainButtonContent}>
+            <Ionicons name="swap-horizontal" size={48} color="#ffffff" style={styles.mainButtonIcon} />
+            <Text style={styles.mainButtonTitle}>Swipe Photos</Text>
+            <Text style={styles.mainButtonSubtitle}>Swipe through all your photos</Text>
+          </View>
+        </LinearGradient>
       </TouchableOpacity>
 
       {/* Feature Options */}
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Smart Features</Text>
-        <Text style={styles.sectionSubtitle}>AI-powered photo analysis & organization</Text>
+        <Text style={styles.sectionSubtitle}>Super-powered photo analysis & organization</Text>
       </View>
 
       <View style={styles.featuresGrid}>
@@ -118,6 +140,8 @@ const LandingPage = (props: LandingPageProps) => {
             key={feature.id}
             style={styles.featureCard}
             onPress={() => onFeatureSelect(feature.id as any)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.9}
           >
             {renderIcon(feature.iconType, feature.iconName)}
             <Text style={styles.featureTitle}>{feature.title}</Text>
@@ -128,13 +152,14 @@ const LandingPage = (props: LandingPageProps) => {
 
       <View style={styles.footer}>
         <View style={styles.footerContent}>
-          <Ionicons name="sparkles" size={16} color="#4dabf7" style={styles.footerIcon} />
+          <Ionicons name="sparkles" size={16} color="#7c3aed" style={styles.footerIcon} />
           <Text style={styles.footerText}>
             Start with "Swipe Photos" to quickly organize your entire gallery, or choose a specific feature for targeted cleanup
           </Text>
         </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
@@ -144,7 +169,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0e1a', // Deep navy blue background
   },
   content: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 60,
     paddingBottom: 40,
   },
@@ -167,7 +192,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 18,
-    color: '#4dabf7', // Light blue accent
+    color: '#7c3aed', // CTA gradient endpoint accent
     fontWeight: '600',
     marginBottom: 12,
   },
@@ -177,17 +202,25 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 24,
   },
+  buildTag: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 6,
+  },
   
   // Main Swipe Button
   mainButton: {
-    backgroundColor: '#4263eb', // Camera-inspired blue
     borderRadius: 20,
     marginBottom: 40,
     elevation: 8,
-    shadowColor: '#4263eb',
+    shadowColor: '#4f46e5',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    overflow: 'hidden',
+  },
+  mainButtonGradient: {
+    borderRadius: 20,
   },
   mainButtonContent: {
     padding: 32,
@@ -221,7 +254,7 @@ const styles = StyleSheet.create({
   },
   sectionSubtitle: {
     fontSize: 14,
-    color: '#74c0fc',
+    color: '#a78bfa',
     textAlign: 'center',
   },
 
@@ -231,7 +264,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     marginBottom: 40,
-    paddingHorizontal: 4, // Small padding to prevent edge touching
+    paddingHorizontal: 0,
   },
   featureCard: {
     width: '48%', // Each card takes 48% width, leaving 4% for spacing

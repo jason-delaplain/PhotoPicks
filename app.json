@@ -4,10 +4,10 @@
     "slug": "photopicks",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/app_icon_photo_picks.png",
+  "icon": "./assets/app-icons/app-icon-1024.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/app_icon_photo_picks.png",
+  "image": "./assets/app-icons/app-icon-1024.png",
       "resizeMode": "contain",
       "backgroundColor": "#0a0e1a"
     },
@@ -48,7 +48,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/app_icon_photo_picks.png",
+        "foregroundImage": "./assets/app-icons/app-icon-1024.png",
         "backgroundColor": "#0a0e1a"
       },
       "permissions": [

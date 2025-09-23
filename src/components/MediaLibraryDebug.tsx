@@ -1,6 +1,7 @@
 // Debug utility for testing MediaLibrary
 import React, { useEffect, useState } from 'react';
 import { View, Text, Button, Alert, ScrollView, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as MediaLibrary from 'expo-media-library';
 
 interface DebugInfo {
@@ -99,46 +100,50 @@ export const MediaLibraryDebug: React.FC = () => {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>MediaLibrary Debug</Text>
+    <SafeAreaView style={{ flex: 1 }}>
+      <ScrollView style={styles.container}>
+        <Text style={styles.title}>MediaLibrary Debug</Text>
       
-      <Button 
-        title={loading ? "Running..." : "Run Debug Test"}
-        onPress={runDebug}
-        disabled={loading}
-      />
+        <Button 
+          title={loading ? "Running..." : "Run Debug Test"}
+          onPress={runDebug}
+          disabled={loading}
+        />
       
-      {debugInfo && (
-        <View style={styles.results}>
-          <Text style={styles.sectionTitle}>Results:</Text>
-          <Text>Permission Status: {debugInfo.permissionStatus}</Text>
-          <Text>Asset Count: {debugInfo.assetCount}</Text>
-          
-          {debugInfo.error && (
-            <Text style={styles.error}>Error: {debugInfo.error}</Text>
-          )}
-          
-          <Text style={styles.sectionTitle}>First Few Assets:</Text>
-          {debugInfo.firstFewAssets.map((asset, index) => (
-            <View key={index} style={styles.assetInfo}>
-              <Text>Asset {index + 1}:</Text>
-              <Text>  ID: {asset.id}</Text>
-              <Text>  Filename: {asset.filename}</Text>
-              <Text>  URI: {asset.uri?.substring(0, 50)}...</Text>
-              <Text>  LocalURI: {asset.localUri?.substring(0, 50) || 'null'}...</Text>
-              {asset.error && <Text style={styles.error}>  Error: {asset.error}</Text>}
-            </View>
-          ))}
-        </View>
-      )}
-    </ScrollView>
+        {debugInfo && (
+          <View style={styles.results}>
+            <Text style={styles.sectionTitle}>Results:</Text>
+            <Text>Permission Status: {debugInfo.permissionStatus}</Text>
+            <Text>Asset Count: {debugInfo.assetCount}</Text>
+            
+            {debugInfo.error && (
+              <Text style={styles.error}>Error: {debugInfo.error}</Text>
+            )}
+            
+            <Text style={styles.sectionTitle}>First Few Assets:</Text>
+            {debugInfo.firstFewAssets.map((asset, index) => (
+              <View key={index} style={styles.assetInfo}>
+                <Text>Asset {index + 1}:</Text>
+                <Text>  ID: {asset.id}</Text>
+                <Text>  Filename: {asset.filename}</Text>
+                <Text>  URI: {asset.uri?.substring(0, 50)}...</Text>
+                <Text>  LocalURI: {asset.localUri?.substring(0, 50) || 'null'}...</Text>
+                {asset.error && <Text style={styles.error}>  Error: {asset.error}</Text>}
+              </View>
+            ))}
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
     backgroundColor: '#f5f5f5',
   },
   title: {

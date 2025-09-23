@@ -4,18 +4,32 @@ import { StyleSheet, Text, View } from 'react-native';
 import LoadingSplash from './src/components/LoadingSplash';
 import LandingPage from './src/components/LandingPage';
 import SwipePhotoSwiper from './src/components/SwipePhotoSwiper';
+import FavoritesManager from './src/components/FavoritesManager';
+import BlurryPhotos from './src/components/BlurryPhotos';
+import { MediaLibraryDebug } from './src/components/MediaLibraryDebug';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-type AppMode = 'loading' | 'landing' | 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar';
+type AppMode = 'loading' | 'landing' | 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar' | 'debug';
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>('loading');
 
-  const handleModeSelect = (selectedMode: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar') => {
+  const handleModeSelect = (selectedMode: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar' | 'debug') => {
     if (selectedMode === 'swipe') {
       console.log('Starting Swipe mode');
       setMode('swipe');
+    } else if (selectedMode === 'blurry') {
+      console.log('Starting Blurry mode');
+      setMode('blurry');
+    } else if (selectedMode === 'favorites') {
+      console.log('Starting Favorites mode');
+      setMode('favorites');
+    } else if (selectedMode === 'debug') {
+      console.log('Starting Debug mode');
+      setMode('debug' as any);
     } else {
-      // For now, all AI features will show a "coming soon" message
+      // For now, all other AI features will show a "coming soon" message
       alert(`${selectedMode} feature coming soon!`);
       // You can set the mode to the specific feature for future implementation
       // setMode(selectedMode);
@@ -31,7 +45,9 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <View style={styles.container}>
       {mode === 'loading' && (
         <LoadingSplash onFinish={handleLoadingFinish} />
       )}
@@ -64,8 +80,18 @@ export default function App() {
           }}
         />
       )}
+      {mode === 'blurry' && (
+        <BlurryPhotos onBack={handleBack} />
+      )}
+      {mode === 'favorites' && (
+        <FavoritesManager 
+          onBack={handleBack}
+        />
+      )}
       <StatusBar style="auto" />
-    </View>
+        </View>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

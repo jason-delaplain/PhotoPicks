@@ -7,6 +7,7 @@ import {
   Dimensions,
   Image,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -57,7 +58,7 @@ const LoadingSplash: React.FC<LoadingSplashProps> = ({ onFinish }) => {
   }, []);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {/* Background */}
       <View style={styles.background} />
       
@@ -83,7 +84,7 @@ const LoadingSplash: React.FC<LoadingSplashProps> = ({ onFinish }) => {
         {/* PhotoPicks text */}
         <Text style={styles.logoText}>PHOTO PICKS</Text>
       </Animated.View>
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -109,7 +110,7 @@ const styles = StyleSheet.create({
   logoWrapper: {
     alignItems: 'center',
     marginBottom: 30,
-    shadowColor: '#4263eb',
+  shadowColor: '#6d28d9',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
@@ -126,7 +127,7 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     letterSpacing: 2,
     textAlign: 'center',
-    textShadowColor: '#4263eb',
+  textShadowColor: '#6d28d9',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
   },
