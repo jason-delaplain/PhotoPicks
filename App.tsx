@@ -6,16 +6,15 @@ import LandingPage from './src/components/LandingPage';
 import SwipePhotoSwiper from './src/components/SwipePhotoSwiper';
 import FavoritesManager from './src/components/FavoritesManager';
 import BlurryPhotos from './src/components/BlurryPhotos';
-import { MediaLibraryDebug } from './src/components/MediaLibraryDebug';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-type AppMode = 'loading' | 'landing' | 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar' | 'debug';
+type AppMode = 'loading' | 'landing' | 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar';
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>('loading');
 
-  const handleModeSelect = (selectedMode: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar' | 'debug') => {
+  const handleModeSelect = (selectedMode: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar') => {
     if (selectedMode === 'swipe') {
       console.log('Starting Swipe mode');
       setMode('swipe');
@@ -25,9 +24,6 @@ export default function App() {
     } else if (selectedMode === 'favorites') {
       console.log('Starting Favorites mode');
       setMode('favorites');
-    } else if (selectedMode === 'debug') {
-      console.log('Starting Debug mode');
-      setMode('debug' as any);
     } else {
       // For now, all other AI features will show a "coming soon" message
       alert(`${selectedMode} feature coming soon!`);

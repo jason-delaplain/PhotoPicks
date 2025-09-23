@@ -65,11 +65,11 @@ const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onBack }) => {
       }
 
       // Check permissions
-      const permissionResult = await MediaLibrary.requestPermissionsAsync();
+      const permissionResult = await MediaLibrary.requestPermissionsAsync(true);
       if (permissionResult.status !== 'granted') {
         console.log('Permission denied for favorites');
-        // Show sample favorites for demo
-        loadSampleFavorites();
+        Alert.alert('Permission Required', 'We need access to your photos to show favorites.');
+        setFavoritePhotos([]);
         return;
       }
 
@@ -77,19 +77,7 @@ const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onBack }) => {
       const photos: Photo[] = [];
       for (const id of favoriteIds) {
         try {
-          if (id.startsWith('sample_')) {
-            // Handle sample photos
-            const samplePhoto: Photo = {
-              uri: `https://picsum.photos/400/600?random=${id.split('_')[1]}`,
-              filename: `Sample favorite ${id.split('_')[1]}`,
-              id: id,
-              width: 400,
-              height: 600,
-              creationTime: Date.now() - Math.random() * 86400000 * 30,
-              modificationTime: Date.now() - Math.random() * 86400000 * 30
-            };
-            photos.push(samplePhoto);
-          } else {
+          {
             // Handle real photos
             const assetInfo = await MediaLibrary.getAssetInfoAsync(id);
             const photo: Photo = {
@@ -141,31 +129,7 @@ const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onBack }) => {
     setLocalUris(map);
   };
 
-  const loadSampleFavorites = () => {
-    // Sample favorite photos for demo
-    const samplePhotos: Photo[] = [
-      {
-        uri: 'https://picsum.photos/400/600?random=101',
-        filename: 'Beautiful sunset',
-        id: 'sample_101',
-        width: 400,
-        height: 600,
-        creationTime: Date.now() - 86400000,
-        modificationTime: Date.now() - 86400000
-      },
-      {
-        uri: 'https://picsum.photos/400/600?random=102',
-        filename: 'Mountain landscape',
-        id: 'sample_102',
-        width: 400,
-        height: 600,
-        creationTime: Date.now() - 172800000,
-        modificationTime: Date.now() - 172800000
-      }
-    ];
-    setFavoritePhotos(samplePhotos);
-    setLoading(false);
-  };
+  // Removed sample favorites fallback
 
   const removeFavoriteById = async (photoId: string) => {
     try {

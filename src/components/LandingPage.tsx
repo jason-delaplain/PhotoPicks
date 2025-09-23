@@ -16,7 +16,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const BUILD_TAG = 'Build: Sep 22, 2025 9:55p';
 
 interface LandingPageProps {
-  onFeatureSelect: (feature: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar' | 'debug') => void;
+  onFeatureSelect: (feature: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar') => void;
 }
 
 const LandingPage = (props: LandingPageProps) => {
@@ -63,13 +63,6 @@ const LandingPage = (props: LandingPageProps) => {
       iconName: 'compare',
       title: 'Similar Images', 
       subtitle: 'Group related photos' 
-    },
-    {
-      id: 'debug',
-      iconType: 'Ionicons',
-      iconName: 'bug',
-      title: 'Dev Tools',
-      subtitle: 'Run diagnostics & debug utilities'
     }
   ];
 

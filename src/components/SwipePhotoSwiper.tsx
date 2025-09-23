@@ -19,7 +19,7 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';
+// import * as FileSystem from 'expo-file-system/legacy';
 import { FavoritesUtils } from '../utils/favoritesUtils';
 import resolveMediaUri from '../utils/resolveMediaUri';
 import * as Haptics from 'expo-haptics';
@@ -120,18 +120,14 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
 
   const confirmDeletions = async () => {
     try {
-      const realPhotos = photosMarkedForDeletion.filter(photo => 
-        photo.id && !photo.id.startsWith('sample_')
-      );
-      
-      if (realPhotos.length > 0) {
-        await MediaLibrary.deleteAssetsAsync(realPhotos.map(photo => photo.id));
-        console.log(`Deleted ${realPhotos.length} photos`);
+      if (photosMarkedForDeletion.length > 0) {
+        await MediaLibrary.deleteAssetsAsync(photosMarkedForDeletion.map(photo => photo.id));
+        console.log(`Deleted ${photosMarkedForDeletion.length} photos`);
       }
       
       Alert.alert(
         'Success',
-        `${realPhotos.length} photo${realPhotos.length > 1 ? 's' : ''} deleted successfully.`,
+        `${photosMarkedForDeletion.length} photo${photosMarkedForDeletion.length > 1 ? 's' : ''} deleted successfully.`,
         [{ text: 'OK', onPress: () => {
           // Clear marked photos and go back
           setPhotosMarkedForDeletion([]);
@@ -156,13 +152,14 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
       console.log('Permissions granted:', permissionResult);
       
       if (permissionResult.status !== 'granted') {
-        console.log('Permission denied, loading sample photos');
+        console.log('Permission denied');
         Alert.alert(
           'Permission Required',
-          'We need access to your photos to organize them. Loading sample photos for demo.',
+          'We need access to your photos to organize them.',
           [{ text: 'OK' }]
         );
-        loadSamplePhotos();
+        setPhotos([]);
+        setLoading(false);
         return;
       }
       // Determine total count if available
@@ -183,13 +180,14 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
         // If totalCount is 0 from head call, try one full query to confirm
         const check = await MediaLibrary.getAssetsAsync({ mediaType: 'photo', first: 1, sortBy: 'creationTime' });
         if (!check.assets || check.assets.length === 0) {
-          console.log('No device photos found, loading sample photos');
+          console.log('No device photos found');
           Alert.alert(
             'No Photos Found',
-            'No photos were found on your device. Loading sample photos for demo.',
+            'No photos were found on your device.',
             [{ text: 'OK' }]
           );
-          loadSamplePhotos();
+          setPhotos([]);
+          setLoading(false);
           return;
         }
       }
@@ -236,13 +234,14 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
       console.log(`Found ${aggregated.length} assets from MediaLibrary`);
 
       if (aggregated.length === 0) {
-        console.log('No device photos found, loading sample photos');
+        console.log('No device photos found');
         Alert.alert(
           'No Photos Found',
-          'No photos were found on your device. Loading sample photos for demo.',
+          'No photos were found on your device.',
           [{ text: 'OK' }]
         );
-        loadSamplePhotos();
+        setPhotos([]);
+        setLoading(false);
         return;
       }
       console.log(`Total device photos loaded: ${aggregated.length}`);
@@ -257,51 +256,14 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
       setLoading(false);
     } catch (error) {
       console.error('Error loading photos:', error);
-      console.log('Loading sample photos due to error');
-      // Always load sample photos if there's any error (including Expo Go limitations)
       Alert.alert(
-        'Using Sample Photos',
-        'Due to platform limitations in Expo Go, we\'ll use sample photos to demonstrate the app functionality.',
+        'Error Loading Photos',
+        'There was a problem accessing your photo library.',
         [{ text: 'OK' }]
       );
-      loadSamplePhotos();
+      setPhotos([]);
+      setLoading(false);
     }
-  };
-
-  const loadSamplePhotos = () => {
-    // Fallback sample photos with required properties
-    const samplePhotos: Photo[] = [
-      { 
-        uri: 'https://picsum.photos/400/600?random=20', 
-        filename: 'sunset_beach.jpg',
-        id: 'sample_1',
-        width: 400,
-        height: 600,
-        creationTime: Date.now() - 86400000,
-        modificationTime: Date.now() - 86400000
-      },
-      { 
-        uri: 'https://picsum.photos/400/600?random=21', 
-        filename: 'city_skyline.jpg',
-        id: 'sample_2',
-        width: 400,
-        height: 600,
-        creationTime: Date.now() - 172800000,
-        modificationTime: Date.now() - 172800000
-      },
-      { 
-        uri: 'https://picsum.photos/400/600?random=22', 
-        filename: 'mountain_view.jpg',
-        id: 'sample_3',
-        width: 400,
-        height: 600,
-        creationTime: Date.now() - 259200000,
-        modificationTime: Date.now() - 259200000
-      },
-    ];
-
-    setPhotos(samplePhotos);
-    setLoading(false);
   };
 
   const handleSwipeAction = async (direction: 'left' | 'right', fromButton = false) => {
@@ -330,25 +292,9 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
         return prev + 1;
       });
       
-      // Check if this is a sample photo
-      const isSamplePhoto = currentPhoto.id && currentPhoto.id.startsWith('sample_');
-      console.log(`Is sample photo: ${isSamplePhoto}`);
-      
-      if (isSamplePhoto) {
-        // For sample photos, just show a message and continue
-        console.log(`Sample photo marked for deletion: ${currentPhoto.filename}`);
-        if (fromButton) {
-          Alert.alert(
-            'Sample Photo',
-            'This is a sample photo and cannot be actually deleted from your device.',
-            [{ text: 'OK' }]
-          );
-        }
-      } else {
-        // For real photos, add to marked for deletion
-        setPhotosMarkedForDeletion(prev => [...prev, currentPhoto]);
-        console.log(`Photo marked for deletion: ${currentPhoto.filename}`);
-      }
+      // Add to marked for deletion
+      setPhotosMarkedForDeletion(prev => [...prev, currentPhoto]);
+      console.log(`Photo marked for deletion: ${currentPhoto.filename}`);
       // Show compact 'Deleted' toast
       try {
         deletedToastOpacity.setValue(0);
@@ -411,15 +357,7 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     onPhotoAction('edit', currentPhoto);
     
     try {
-      // For sample photos, show info message
-      if (currentPhoto.id && currentPhoto.id.startsWith('sample_')) {
-        Alert.alert(
-          'Sample Photo',
-          'This is a sample photo. In a real app, you would be able to edit your actual photos.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
+      // No sample photo branch
 
       if (Platform.OS === 'ios') {
         // iOS: Go directly to share dialog

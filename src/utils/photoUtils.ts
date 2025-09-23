@@ -12,21 +12,7 @@ export interface PhotoStats {
   edited: number;
 }
 
-// Generate sample photos with more realistic filenames and variety
-export const generateSamplePhotos = (count: number = 10): Photo[] => {
-  const photoTypes = [
-    'sunset_beach', 'city_skyline', 'mountain_view', 'forest_path', 'ocean_waves',
-    'desert_dunes', 'rain_drops', 'autumn_leaves', 'night_stars', 'flower_garden',
-    'coffee_shop', 'street_art', 'vintage_car', 'food_plate', 'concert_stage',
-    'architecture', 'wildlife', 'reflection', 'clouds', 'garden_path'
-  ];
-
-  return Array.from({ length: count }, (_, index) => ({
-    uri: `https://picsum.photos/400/600?random=${20 + index}`,
-    filename: `${photoTypes[index % photoTypes.length]}_${String(index + 1).padStart(3, '0')}.jpg`,
-    id: `photo_${index + 1}`,
-  }));
-};
+// Removed sample photo generator
 
 // Photo action handlers
 export const handlePhotoAction = (
@@ -97,7 +83,6 @@ export const openPhotoEditor = (photo: Photo): Promise<boolean> => {
 };
 
 export default {
-  generateSamplePhotos,
   handlePhotoAction,
   calculateStats,
   formatStats,
