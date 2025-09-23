@@ -9,6 +9,8 @@ import {
   Alert,
   Dimensions,
   RefreshControl,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as MediaLibrary from 'expo-media-library';
 import resolveMediaUri from '../utils/resolveMediaUri';
+import * as Sharing from 'expo-sharing';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // 16dp side padding + 16dp gutter between two items -> total horizontal gutters = 16 + 16 + 16 = 48
@@ -44,6 +47,9 @@ const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onBack, onStartSwip
   const [localUris, setLocalUris] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState<Photo | null>(null);
+  const [previewUri, setPreviewUri] = useState<string | null>(null);
 
   useEffect(() => {
     loadFavorites();
@@ -130,6 +136,54 @@ const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onBack, onStartSwip
     setLocalUris(map);
   };
 
+  const validatePreviewUri = (u: string | null | undefined): string | null => {
+    if (!u) return null;
+    if (u.startsWith('file://') || u.startsWith('http') || u.startsWith('https') || u.startsWith('data:')) return u;
+    return null;
+  };
+
+  const openPreview = async (photo: Photo) => {
+    try {
+      setPreviewPhoto(photo);
+      setPreviewUri(null);
+      setPreviewVisible(true);
+      let uri = localUris[photo.id] || photo.uri;
+      try {
+        const resolved = await resolveMediaUri(photo);
+        if (resolved) uri = resolved;
+      } catch {}
+      const valid = validatePreviewUri(uri);
+      setPreviewUri(valid);
+    } catch (e) {
+      console.warn('Failed to open preview', e);
+      setPreviewVisible(false);
+    }
+  };
+
+  const closePreview = () => {
+    setPreviewVisible(false);
+    setPreviewPhoto(null);
+    setPreviewUri(null);
+  };
+
+  const handleSharePreview = async () => {
+    try {
+      if (!previewUri) {
+        Alert.alert('Share Unavailable', 'No image to share.');
+        return;
+      }
+      const available = await Sharing.isAvailableAsync();
+      if (!available) {
+        Alert.alert('Share Not Available', 'Sharing is not available on this device.');
+        return;
+      }
+      await Sharing.shareAsync(previewUri, { dialogTitle: 'Share Photo', mimeType: 'image/*' });
+    } catch (e) {
+      console.error('Share failed', e);
+      Alert.alert('Error', 'Unable to share this photo.');
+    }
+  };
+
   // Removed sample favorites fallback
 
   const removeFavoriteById = async (photoId: string) => {
@@ -182,6 +236,7 @@ const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onBack, onStartSwip
     <TouchableOpacity
       key={photo.id}
       style={styles.photoCard}
+      onPress={() => openPreview(photo)}
       onLongPress={() => removeFavorite(photo)}
     >
       { (localUris[photo.id] && !(localUris[photo.id]||'').startsWith('ph:')) ? (
@@ -278,6 +333,28 @@ const FavoritesManager: React.FC<FavoritesManagerProps> = ({ onBack, onStartSwip
           </View>
         </ScrollView>
       )}
+      {/* Preview Modal */}
+      <Modal visible={previewVisible} transparent animationType="slide" onRequestClose={closePreview}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity style={styles.modalHeaderButton} onPress={closePreview} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Ionicons name="close" size={22} color="#ffffff" />
+              <Text style={styles.modalHeaderButtonText}>Close</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.modalHeaderButton, styles.modalShareButton]} onPress={handleSharePreview} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Ionicons name="share-social" size={20} color="#ffffff" />
+              <Text style={styles.modalHeaderButtonText}>Share</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.modalBody}>
+            {!previewUri ? (
+              <ActivityIndicator size="large" color="#7c3aed" />
+            ) : (
+              <Image source={{ uri: previewUri }} style={styles.modalImage} />
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -428,6 +505,49 @@ const styles = StyleSheet.create({
   photoDate: {
     color: '#6c757d',
     fontSize: 12,
+  },
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(10,14,26,0.98)',
+  },
+  modalHeader: {
+    paddingTop: 50,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#0f1422',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#1f2740',
+  },
+  modalHeaderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(124,58,237,0.15)',
+  },
+  modalShareButton: {
+    backgroundColor: 'rgba(79,70,229,0.25)',
+  },
+  modalHeaderButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    marginLeft: 6,
+  },
+  modalBody: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 12,
+  },
+  modalImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'contain',
   },
 });
 
