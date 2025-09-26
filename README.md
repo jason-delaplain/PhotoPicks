@@ -93,6 +93,15 @@ A modern React Native app built with Expo for organizing and managing your photo
 - **Completion screens** with final statistics
 - **Mode switching** from any screen
 
+### Refresh & caching
+- The app uses a fast, in-memory cache of your photo library for both Swipe and Blurry modes.
+- It won’t rescan automatically while you use the app; instead it reads from this cache for snappy navigation.
+- To rescan/refresh the library:
+  - In Swipe mode, tap the “Refresh” button in the header.
+  - In Blurry mode, pull down to refresh.
+- When you delete photos from within the app, the cache is pruned immediately so counts stay accurate.
+- The cache is in-memory only and resets when the app restarts.
+
 ## 🔮 Future Enhancements
 
 ### Planned Features
