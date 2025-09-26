@@ -496,16 +496,24 @@ const BlurryPhotos = ({ onBack }: { onBack: () => void }) => {
       const { photos } = useCacheFirst ? await MediaCache.getOrScan(p => setScanningProgress(p)) : await MediaCache.refresh(p => setScanningProgress(p));
       const aggregated: AssetWithScore[] = [];
       setScanningProgress({ done: 0, total: photos.length });
-      for (let i = 0; i < photos.length; i++) {
-        const a = photos[i] as any as AssetWithScore;
-        const score = await scoreAsset(a);
-        a.score = score;
-        aggregated.push(a);
-        setScanningProgress({ done: i + 1, total: photos.length });
-        if ((i + 1) % 10 === 0) await new Promise(r => setTimeout(r, 0));
+      const BATCH = 24;
+      for (let i = 0; i < photos.length; i += BATCH) {
+        const slice = photos.slice(i, i + BATCH) as any as AssetWithScore[];
+        const scored = await Promise.all(
+          slice.map(async (a) => {
+            const s = await scoreAsset(a);
+            (a as AssetWithScore).score = s;
+            return a as AssetWithScore;
+          })
+        );
+        aggregated.push(...scored);
+        const done = Math.min(i + BATCH, photos.length);
+        setScanningProgress({ done, total: photos.length });
+        // Incremental list update for responsiveness
+        setBatchAssets([...aggregated]);
+        await new Promise(r => setTimeout(r, 0));
       }
-      aggregated.sort((a, b) => (a.score || 0) - (b.score || 0));
-  setBatchAssets(aggregated);
+      setBatchAssets([...aggregated]);
     } catch (e) {
       console.warn('Full scan failed', e);
       Alert.alert('Scan failed', 'Could not scan the entire library.');
@@ -555,15 +563,16 @@ const BlurryPhotos = ({ onBack }: { onBack: () => void }) => {
 
   const displayedAssets = useMemo(() => {
     if (!batchAssets || batchAssets.length === 0) return [] as AssetWithScore[];
-    // batchAssets should already be sorted ascending by score (lower = blurrier)
-    const n = batchAssets.length;
+    // Sort at render time to keep UI responsive during incremental updates
+    const sorted = [...batchAssets].sort((a, b) => (a.score || 0) - (b.score || 0));
+    const n = sorted.length;
     // Map slider value (0..100) to effective percentile 80..10 (Less..More blurry)
     const minPct = 10, maxPct = 80;
     const v = Math.max(0, Math.min(100, blurPercentile));
     const effPct = maxPct - (v / 100) * (maxPct - minPct);
     const pct = effPct / 100;
     const cutoff = Math.max(1, Math.min(n, Math.floor(n * pct)));
-    return batchAssets.slice(0, cutoff);
+    return sorted.slice(0, cutoff);
   }, [batchAssets, blurPercentile]);
 
   // Match Swipe Photos: show only the loading indicator first

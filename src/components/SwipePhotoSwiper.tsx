@@ -80,6 +80,27 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     console.log(`Photos state changed: now ${photos.length} photos`);
   }, [photos]);
 
+  // Lazily resolve local file URIs for the current and next photos to ensure displayable URIs on iOS
+  useEffect(() => {
+    const resolveIfNeeded = async (p: Photo | undefined) => {
+      if (!p) return;
+      const current = resolvedUris[p.id] || p.uri;
+      // If already a file/http/data URI, no need to resolve
+      if (current && (current.startsWith('file:') || current.startsWith('http') || current.startsWith('data:'))) return;
+      try {
+        const local = await resolveMediaUri({ id: p.id, uri: p.uri });
+        if (local && local !== current) {
+          setResolvedUris(prev => ({ ...prev, [p.id]: local }));
+          try { MediaCache.updateResolvedUri(p.id, local); } catch {}
+        }
+      } catch {}
+    };
+    if (photos.length > 0) {
+      resolveIfNeeded(photos[currentIndex]);
+      resolveIfNeeded(photos[currentIndex + 1]);
+    }
+  }, [currentIndex, photos]);
+
   // Favorites removed: no favorite status tracking
 
   const handleBackPress = () => {
@@ -168,6 +189,21 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
       }));
       setPhotos(mapped);
       setResolvedUris({ ...resolvedUris });
+      // Pre-resolve the first few items to avoid initial flicker/blank images on iOS
+      (async () => {
+        const firstN = mapped.slice(0, 4);
+        await Promise.all(firstN.map(async (p) => {
+          const current = resolvedUris[p.id] || p.uri;
+          if (current && (current.startsWith('file:') || current.startsWith('http') || current.startsWith('data:'))) return;
+          try {
+            const local = await resolveMediaUri({ id: p.id, uri: p.uri });
+            if (local && local !== current) {
+              setResolvedUris(prev => ({ ...prev, [p.id]: local }));
+              try { MediaCache.updateResolvedUri(p.id, local); } catch {}
+            }
+          } catch {}
+        }));
+      })();
     } catch (error) {
       console.error('Error loading photos:', error);
       Alert.alert('Error Loading Photos', 'There was a problem accessing your photo library.', [{ text: 'OK' }]);
