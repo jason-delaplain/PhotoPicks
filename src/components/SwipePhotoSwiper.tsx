@@ -277,8 +277,6 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
           // Ensure we pass a file:// or http(s) URI, not ph://
           let shareUri = currentPhoto.uri;
           try {
-      // Update cache to remove deleted items
-      MediaCache.removeByIds(photosMarkedForDeletion.map(p => p.id));
             const resolved = await resolveMediaUri(currentPhoto);
             shareUri = resolved || currentPhoto.uri;
           } catch (e) {

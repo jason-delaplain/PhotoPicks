@@ -45,6 +45,8 @@ class MediaCacheClass {
   async refresh(onProgress?: (p: Progress) => void): Promise<{ photos: CachedPhoto[]; resolvedUris: Record<string, string> }> {
     this.scanning = true;
     try {
+      // reset resolved URIs to avoid stale entries
+      this.resolvedUris = {};
       const granted = (await MediaLibrary.requestPermissionsAsync(true)).status === 'granted';
       if (!granted) {
         this.photos = [];

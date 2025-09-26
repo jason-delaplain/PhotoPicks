@@ -1,4 +1,5 @@
 import * as MediaLibrary from 'expo-media-library';
+import { MediaCache } from './mediaCache';
 
 /**
  * Resolve an asset object or URI to a usable localUri (file://) when possible.
@@ -28,19 +29,29 @@ export default async function resolveMediaUri(input: any): Promise<string | null
     if (input && typeof input === 'object') {
       try {
         const info = await MediaLibrary.getAssetInfoAsync(input);
-        if (info && info.localUri) return info.localUri;
+        if (info && info.localUri) {
+          try { MediaCache.updateResolvedUri(input.id ?? input.uri ?? input, info.localUri); } catch {}
+          return info.localUri;
+        }
       } catch (e) {
         // some versions expect id string
         try {
           const info = await MediaLibrary.getAssetInfoAsync(input.id || input.localId || input.uri);
-          if (info && info.localUri) return info.localUri;
+          if (info && info.localUri) {
+            try { MediaCache.updateResolvedUri(input.id ?? input.localId ?? input.uri, info.localUri); } catch {}
+            return info.localUri;
+          }
         } catch (e2) {
           // fallthrough
         }
       }
 
       // fallback to asset.localUri or asset.uri
-      return input.localUri || input.uri || null;
+      const fallback = input.localUri || input.uri || null;
+      if (fallback) {
+        try { MediaCache.updateResolvedUri(input.id ?? input.localId ?? input.uri, fallback); } catch {}
+      }
+      return fallback;
     }
 
     return null;
