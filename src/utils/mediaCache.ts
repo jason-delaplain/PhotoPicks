@@ -83,6 +83,10 @@ class MediaCacheClass {
           this.resolvedUris[a.id] = uri;
           done += 1;
           onProgress?.({ done, total: totalCount || Math.max(done, 0) });
+          // Yield periodically so UI can render progress increments
+          if (done % 25 === 0) {
+            await new Promise(r => setTimeout(r, 0));
+          }
         }
       }
       this.photos = aggregated;

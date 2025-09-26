@@ -496,21 +496,24 @@ const BlurryPhotos = ({ onBack }: { onBack: () => void }) => {
       const { photos } = useCacheFirst ? await MediaCache.getOrScan(p => setScanningProgress(p)) : await MediaCache.refresh(p => setScanningProgress(p));
       const aggregated: AssetWithScore[] = [];
       setScanningProgress({ done: 0, total: photos.length });
-      const BATCH = 24;
+      const BATCH = 16;
       for (let i = 0; i < photos.length; i += BATCH) {
         const slice = photos.slice(i, i + BATCH) as any as AssetWithScore[];
+        let completed = i;
         const scored = await Promise.all(
           slice.map(async (a) => {
             const s = await scoreAsset(a);
             (a as AssetWithScore).score = s;
+            completed += 1;
+            // Update progress per-asset so the indicator advances smoothly
+            setScanningProgress({ done: completed, total: photos.length });
             return a as AssetWithScore;
           })
         );
         aggregated.push(...scored);
-        const done = Math.min(i + BATCH, photos.length);
-        setScanningProgress({ done, total: photos.length });
         // Incremental list update for responsiveness
         setBatchAssets([...aggregated]);
+        // Yield to UI thread
         await new Promise(r => setTimeout(r, 0));
       }
       setBatchAssets([...aggregated]);

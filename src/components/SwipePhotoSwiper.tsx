@@ -169,8 +169,8 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
         return;
       }
       setLoading(true);
-      setScanningProgress({ done: 0, total: 0 });
-      const { photos: cachedPhotos, resolvedUris } = await MediaCache.getOrScan(p => setScanningProgress(p));
+  setScanningProgress({ done: 0, total: 0 });
+  const { photos: cachedPhotos, resolvedUris } = await MediaCache.getOrScan(p => setScanningProgress({ ...p }));
       if (!cachedPhotos || cachedPhotos.length === 0) {
         Alert.alert('No Photos Found', 'No photos were found on your device.', [{ text: 'OK' }]);
         setPhotos([]);
@@ -456,8 +456,8 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
   const handleRefresh = async () => {
     try {
       setLoading(true);
-      setScanningProgress({ done: 0, total: 0 });
-      const { photos: cachedPhotos, resolvedUris } = await MediaCache.refresh(p => setScanningProgress(p));
+  setScanningProgress({ done: 0, total: 0 });
+  const { photos: cachedPhotos, resolvedUris } = await MediaCache.refresh(p => setScanningProgress({ ...p }));
       const mapped: Photo[] = cachedPhotos.map(p => ({
         id: p.id,
         uri: resolvedUris[p.id] || p.uri,
