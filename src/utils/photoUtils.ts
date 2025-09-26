@@ -27,13 +27,13 @@ export const handlePhotoAction = (
   }
   
   // In a real app, you would:
-  // - Move kept photos to a "favorites" album
+  // - Optionally move kept photos to a dedicated album
   // - Add deleted photos to a "recently deleted" folder
   // - Open edit photo in external app or built-in editor
   
   switch (action) {
     case 'keep':
-      // Add to favorites or kept photos collection
+  // Add to a kept photos collection or album
       break;
     case 'delete':
       // Move to trash/recently deleted

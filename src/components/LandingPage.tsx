@@ -16,19 +16,12 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const BUILD_TAG = 'Build: Sep 22, 2025 9:55p';
 
 interface LandingPageProps {
-  onFeatureSelect: (feature: 'swipe' | 'favorites' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'similar') => void;
+  onFeatureSelect: (feature: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'similar') => void;
 }
 
 const LandingPage = (props: LandingPageProps) => {
   const { onFeatureSelect } = props;
   const mainFeatures = [
-    { 
-      id: 'favorites', 
-      iconType: 'Ionicons',
-      iconName: 'heart',
-      title: 'Favorites', 
-      subtitle: 'Your swiped best shots' 
-    },
     { 
       id: 'blurry', 
       iconType: 'MaterialIcons',

@@ -4,26 +4,22 @@ import { StyleSheet, Text, View } from 'react-native';
 import LoadingSplash from './src/components/LoadingSplash';
 import LandingPage from './src/components/LandingPage';
 import SwipePhotoSwiper from './src/components/SwipePhotoSwiper';
-import FavoritesManager from './src/components/FavoritesManager';
 import BlurryPhotos from './src/components/BlurryPhotos';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-type AppMode = 'loading' | 'landing' | 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar';
+type AppMode = 'loading' | 'landing' | 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'similar';
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>('loading');
 
-  const handleModeSelect = (selectedMode: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'favorites' | 'similar') => {
+  const handleModeSelect = (selectedMode: 'swipe' | 'blurry' | 'duplicates' | 'keyword' | 'color' | 'similar') => {
     if (selectedMode === 'swipe') {
       console.log('Starting Swipe mode');
       setMode('swipe');
     } else if (selectedMode === 'blurry') {
       console.log('Starting Blurry mode');
       setMode('blurry');
-    } else if (selectedMode === 'favorites') {
-      console.log('Starting Favorites mode');
-      setMode('favorites');
     } else {
       // For now, all other AI features will show a "coming soon" message
       alert(`${selectedMode} feature coming soon!`);
@@ -78,12 +74,6 @@ export default function App() {
       )}
       {mode === 'blurry' && (
         <BlurryPhotos onBack={handleBack} />
-      )}
-      {mode === 'favorites' && (
-        <FavoritesManager 
-          onBack={handleBack}
-          onStartSwiping={() => setMode('swipe')}
-        />
       )}
       <StatusBar style="auto" />
         </View>

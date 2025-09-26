@@ -11,6 +11,7 @@ import * as Sharing from 'expo-sharing';
 // Lightweight in-file slider to avoid native deps
 // (removed unused imports)
 import resolveMediaUri from '../utils/resolveMediaUri';
+import { MediaCache } from '../utils/mediaCache';
 // (removed persistence imports)
 // Defer jpeg-js import to runtime to avoid module init issues on screen mount
 import { Buffer } from 'buffer';
@@ -161,9 +162,10 @@ const BlurryPhotos = ({ onBack }: { onBack: () => void }) => {
   };
 
   useEffect(() => {
-    // Default to scanning the entire library on mount
     (async () => {
-      await scanEntireLibrary();
+      setLoading(true);
+      await scanEntireLibrary(true);
+      setLoading(false);
     })();
   }, []);
 
@@ -260,6 +262,8 @@ const BlurryPhotos = ({ onBack }: { onBack: () => void }) => {
     }
     try {
       await MediaLibrary.deleteAssetsAsync([asset.id]);
+      // Prune from shared cache as well
+      try { MediaCache.removeByIds([asset.id]); } catch {}
       try { await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
       try {
         deletedToastOpacity.setValue(0);
@@ -463,6 +467,7 @@ const BlurryPhotos = ({ onBack }: { onBack: () => void }) => {
     if (!ok) return;
     try {
       await MediaLibrary.deleteAssetsAsync(ids);
+      try { MediaCache.removeByIds(ids); } catch {}
       try { await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
       setBatchAssets(prev => prev.filter(a => !selected.has(a.id)));
       setSelected(new Set());
@@ -480,7 +485,7 @@ const BlurryPhotos = ({ onBack }: { onBack: () => void }) => {
   };
 
   // Scan the entire photo library across pages, aggregate and sort
-  const scanEntireLibrary = async () => {
+  const scanEntireLibrary = async (useCacheFirst: boolean = false) => {
     const ok = await requestPermissions();
     if (!ok) {
       Alert.alert('Permission required', 'Photo library permission is required to scan the library.');
@@ -488,25 +493,16 @@ const BlurryPhotos = ({ onBack }: { onBack: () => void }) => {
     }
     setLoading(true);
     try {
-      let after: string | undefined = undefined;
-      const CHUNK = 100;
+      const { photos } = useCacheFirst ? await MediaCache.getOrScan(p => setScanningProgress(p)) : await MediaCache.refresh(p => setScanningProgress(p));
       const aggregated: AssetWithScore[] = [];
-      let hasNext = true;
-      // Optionally could read total library count here; omitted per simplified UI
-      while (hasNext) {
-        const res = await MediaLibrary.getAssetsAsync({ first: CHUNK, mediaType: ['photo'], after });
-        const assets = (res.assets as AssetWithScore[]) || [];
-        hasNext = !!res.hasNextPage;
-        after = res.endCursor ?? undefined;
-        setScanningProgress({ done: 0, total: assets.length });
-        for (let i = 0; i < assets.length; i++) {
-          const a = assets[i];
-          const score = await scoreAsset(a);
-          a.score = score;
-          aggregated.push(a);
-          setScanningProgress({ done: i + 1, total: assets.length });
-          if ((i + 1) % 10 === 0) await new Promise(r => setTimeout(r, 0));
-        }
+      setScanningProgress({ done: 0, total: photos.length });
+      for (let i = 0; i < photos.length; i++) {
+        const a = photos[i] as any as AssetWithScore;
+        const score = await scoreAsset(a);
+        a.score = score;
+        aggregated.push(a);
+        setScanningProgress({ done: i + 1, total: photos.length });
+        if ((i + 1) % 10 === 0) await new Promise(r => setTimeout(r, 0));
       }
       aggregated.sort((a, b) => (a.score || 0) - (b.score || 0));
   setBatchAssets(aggregated);

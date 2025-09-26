@@ -20,9 +20,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 // import * as FileSystem from 'expo-file-system/legacy';
-import { FavoritesUtils } from '../utils/favoritesUtils';
 import resolveMediaUri from '../utils/resolveMediaUri';
 import * as Haptics from 'expo-haptics';
+import { MediaCache } from '../utils/mediaCache';
 
 // Toast timing constants (ms)
 const TOAST_FADE_IN = 120;
@@ -57,7 +57,7 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
   const [keptCount, setKeptCount] = useState(0);
   const [deletedCount, setDeletedCount] = useState(0);
   const [photosMarkedForDeletion, setPhotosMarkedForDeletion] = useState<Photo[]>([]); // Track photos marked for deletion
-  const [isCurrentPhotoFavorite, setIsCurrentPhotoFavorite] = useState(false); // Track favorite status
+  // Favorites removed for now
   const keptToastOpacity = useRef(new Animated.Value(0)).current;
   const deletedToastOpacity = useRef(new Animated.Value(0)).current;
   
@@ -71,7 +71,7 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
   // Zoom removed: no pinch or double-tap state
 
   useEffect(() => {
-    console.log('Loading device photos');
+    console.log('Loading device photos (cache-aware)');
     loadDevicePhotos();
   }, []);
 
@@ -80,17 +80,7 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     console.log(`Photos state changed: now ${photos.length} photos`);
   }, [photos]);
 
-  // Check favorite status when current photo changes
-  useEffect(() => {
-    const checkFavoriteStatus = async () => {
-      if (photos.length > 0 && currentIndex < photos.length) {
-        const currentPhoto = photos[currentIndex];
-        const isFavorite = await FavoritesUtils.isFavorite(currentPhoto.id);
-        setIsCurrentPhotoFavorite(isFavorite);
-      }
-    };
-    checkFavoriteStatus();
-  }, [currentIndex, photos]);
+  // Favorites removed: no favorite status tracking
 
   const handleBackPress = () => {
     if (photosMarkedForDeletion.length > 0) {
@@ -123,6 +113,8 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
       if (photosMarkedForDeletion.length > 0) {
         await MediaLibrary.deleteAssetsAsync(photosMarkedForDeletion.map(photo => photo.id));
         console.log(`Deleted ${photosMarkedForDeletion.length} photos`);
+        // Keep shared cache in sync
+        try { MediaCache.removeByIds(photosMarkedForDeletion.map(p => p.id)); } catch {}
       }
       
       Alert.alert(
@@ -148,120 +140,39 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     try {
       // Request permissions with proper write access for deletion
       const permissionResult = await MediaLibrary.requestPermissionsAsync(true);
-      
       console.log('Permissions granted:', permissionResult);
-      
       if (permissionResult.status !== 'granted') {
-        console.log('Permission denied');
-        Alert.alert(
-          'Permission Required',
-          'We need access to your photos to organize them.',
-          [{ text: 'OK' }]
-        );
+        Alert.alert('Permission Required', 'We need access to your photos to organize them.', [{ text: 'OK' }]);
         setPhotos([]);
         setLoading(false);
         return;
       }
-      // Determine total count if available
-      let totalCount: number | null = null;
-      try {
-        const head = await MediaLibrary.getAssetsAsync({ first: 1, mediaType: 'photo', sortBy: 'creationTime' });
-        totalCount = (head as any).totalCount ?? null;
-      } catch {}
-      setScanningProgress({ done: 0, total: totalCount ?? 0 });
-
-      // Get photos from device in pages
-      console.log('Getting assets from MediaLibrary...');
-      let after: string | undefined = undefined;
-      let hasNext = true;
-      const CHUNK = 100;
-      const aggregated: Photo[] = [];
-      if (totalCount === 0) {
-        // If totalCount is 0 from head call, try one full query to confirm
-        const check = await MediaLibrary.getAssetsAsync({ mediaType: 'photo', first: 1, sortBy: 'creationTime' });
-        if (!check.assets || check.assets.length === 0) {
-          console.log('No device photos found');
-          Alert.alert(
-            'No Photos Found',
-            'No photos were found on your device.',
-            [{ text: 'OK' }]
-          );
-          setPhotos([]);
-          setLoading(false);
-          return;
-        }
-      }
-
-      while (hasNext) {
-        const res = await MediaLibrary.getAssetsAsync({
-          mediaType: 'photo',
-          first: CHUNK,
-          sortBy: 'creationTime',
-          after,
-        });
-        const assets = res.assets || [];
-        hasNext = !!res.hasNextPage;
-        after = res.endCursor ?? undefined;
-        console.log(`Fetched page: ${assets.length} assets`);
-
-        for (const asset of assets) {
-          try {
-            let uri = asset.uri;
-            try {
-              const resolved = await resolveMediaUri(asset);
-              uri = resolved || asset.uri;
-            } catch (e) {
-              uri = asset.uri;
-            }
-
-            aggregated.push({
-              uri,
-              filename: asset.filename,
-              id: asset.id,
-              mediaType: asset.mediaType as any,
-              width: asset.width,
-              height: asset.height,
-              creationTime: asset.creationTime as any,
-              modificationTime: asset.modificationTime as any,
-            });
-            setScanningProgress(prev => ({ done: prev.done + 1, total: totalCount ?? Math.max(prev.done + 1, prev.total) }));
-          } catch (error) {
-            console.warn('Error processing asset', asset.id, error);
-          }
-        }
-      }
-
-      console.log(`Found ${aggregated.length} assets from MediaLibrary`);
-
-      if (aggregated.length === 0) {
-        console.log('No device photos found');
-        Alert.alert(
-          'No Photos Found',
-          'No photos were found on your device.',
-          [{ text: 'OK' }]
-        );
+      setLoading(true);
+      setScanningProgress({ done: 0, total: 0 });
+      const { photos: cachedPhotos, resolvedUris } = await MediaCache.getOrScan(p => setScanningProgress(p));
+      if (!cachedPhotos || cachedPhotos.length === 0) {
+        Alert.alert('No Photos Found', 'No photos were found on your device.', [{ text: 'OK' }]);
         setPhotos([]);
         setLoading(false);
         return;
       }
-      console.log(`Total device photos loaded: ${aggregated.length}`);
-      setPhotos(aggregated);
-      // Build resolved map directly from aggregated
-      const map: Record<string, string> = {};
-      for (const p of aggregated) {
-        map[p.id] = p.uri;
-      }
-      setResolvedUris(map);
-      console.log(`Photos state updated to ${aggregated.length} photos`);
-      setLoading(false);
+      const mapped: Photo[] = cachedPhotos.map(p => ({
+        id: p.id,
+        uri: resolvedUris[p.id] || p.uri,
+        filename: p.filename,
+        mediaType: p.mediaType as any,
+        width: p.width,
+        height: p.height,
+        creationTime: p.creationTime,
+        modificationTime: p.modificationTime,
+      }));
+      setPhotos(mapped);
+      setResolvedUris({ ...resolvedUris });
     } catch (error) {
       console.error('Error loading photos:', error);
-      Alert.alert(
-        'Error Loading Photos',
-        'There was a problem accessing your photo library.',
-        [{ text: 'OK' }]
-      );
+      Alert.alert('Error Loading Photos', 'There was a problem accessing your photo library.', [{ text: 'OK' }]);
       setPhotos([]);
+    } finally {
       setLoading(false);
     }
   };
@@ -366,6 +277,8 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
           // Ensure we pass a file:// or http(s) URI, not ph://
           let shareUri = currentPhoto.uri;
           try {
+      // Update cache to remove deleted items
+      MediaCache.removeByIds(photosMarkedForDeletion.map(p => p.id));
             const resolved = await resolveMediaUri(currentPhoto);
             shareUri = resolved || currentPhoto.uri;
           } catch (e) {
@@ -448,36 +361,7 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
     }
   };
 
-  const handleToggleFavorite = async () => {
-    if (currentIndex >= photos.length) return;
-    
-    const currentPhoto = photos[currentIndex];
-    
-    try {
-      const newFavoriteStatus = await FavoritesUtils.toggleFavorite(currentPhoto.id);
-      try {
-        await Haptics.impactAsync(newFavoriteStatus ? Haptics.ImpactFeedbackStyle.Light : Haptics.ImpactFeedbackStyle.Rigid);
-      } catch {}
-      setIsCurrentPhotoFavorite(newFavoriteStatus);
-      
-      const message = newFavoriteStatus 
-        ? `Added "${currentPhoto.filename || 'Photo'}" to favorites ❤️`
-        : `Removed "${currentPhoto.filename || 'Photo'}" from favorites`;
-        
-      // Show a brief toast-like message
-      Alert.alert(
-        newFavoriteStatus ? 'Added to Favorites' : 'Removed from Favorites',
-        message,
-        [{ text: 'OK' }],
-        { cancelable: true }
-      );
-      
-      console.log(message);
-    } catch (error) {
-      console.error('Error toggling favorite:', error);
-      Alert.alert('Error', 'Failed to update favorite status.');
-    }
-  };
+  // Favorites removed: no toggle handler
 
   // No zoom helpers on this page
 
@@ -534,6 +418,32 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
       <View style={[styles.progressBarFill, { width: `${Math.max(0, Math.min(100, Math.round(progress * 100)))}%` }]} />
     </View>
   );
+
+  const handleRefresh = async () => {
+    try {
+      setLoading(true);
+      setScanningProgress({ done: 0, total: 0 });
+      const { photos: cachedPhotos, resolvedUris } = await MediaCache.refresh(p => setScanningProgress(p));
+      const mapped: Photo[] = cachedPhotos.map(p => ({
+        id: p.id,
+        uri: resolvedUris[p.id] || p.uri,
+        filename: p.filename,
+        mediaType: p.mediaType as any,
+        width: p.width,
+        height: p.height,
+        creationTime: p.creationTime,
+        modificationTime: p.modificationTime,
+      }));
+      setPhotos(mapped);
+      setResolvedUris({ ...resolvedUris });
+      setCurrentIndex(0);
+      setPhotosMarkedForDeletion([]);
+      setKeptCount(0);
+      setDeletedCount(0);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     const total = scanningProgress.total;
@@ -623,16 +533,8 @@ const SwipePhotoSwiper: React.FC<SwipePhotoSwiperProps> = ({ onPhotoAction, onBa
             </View>
           </View>
           <View style={styles.headerRight}>
-            <TouchableOpacity 
-              style={[styles.favoriteButton, isCurrentPhotoFavorite && styles.favoriteButtonActive]} 
-              onPress={handleToggleFavorite}
-              activeOpacity={0.85}
-            >
-              <Ionicons 
-                name={isCurrentPhotoFavorite ? "heart" : "heart-outline"} 
-                size={20} 
-                color={isCurrentPhotoFavorite ? "#ff4757" : "#ffffff"} 
-              />
+            <TouchableOpacity style={styles.refreshBtn} onPress={handleRefresh} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.85}>
+              <Text style={{ color: '#a78bfa' }}>Refresh</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.editButton} onPress={handleEditPhoto} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} activeOpacity={0.85}>
               <LinearGradient colors={["#4f46e5", "#7c3aed"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.editButtonBg}>
@@ -875,14 +777,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  favoriteButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: 'transparent',
+  refreshBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
-  favoriteButtonActive: {
-    backgroundColor: 'rgba(255, 71, 87, 0.2)',
-  },
+  
   titleContainer: {
     alignItems: 'center',
     paddingBottom: 20,

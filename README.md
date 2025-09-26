@@ -23,8 +23,7 @@ A modern React Native app built with Expo for organizing and managing your photo
 - Adjustable sensitivity with a simple slider
 - Select multiple and bulk delete
 
-#### Favorites
-- Mark favorites from Swipe mode and manage them in a dedicated view
+<!-- Favorites feature removed for now -->
 
 ### 🎯 Key Improvements
 
@@ -64,7 +63,7 @@ A modern React Native app built with Expo for organizing and managing your photo
 - `LandingPage.tsx` - Feature selection and app introduction
 - `SwipePhotoSwiper.tsx` - Gesture-based organization
 - `BlurryPhotos.tsx` - Blurry photo detection and cleanup
-- `FavoritesManager.tsx` - Manage favorited photos
+<!-- FavoritesManager removed -->
 
 ### Data
 - Operates on the device photo library via Expo MediaLibrary
@@ -152,7 +151,7 @@ PhotoPicksExpo/
 │   │   ├── LandingPage.tsx
 │   │   ├── SwipePhotoSwiper.tsx
 │   │   ├── BlurryPhotos.tsx
-│   │   └── FavoritesManager.tsx
+│   │   
 │   └── utils/
 │       └── resolveMediaUri.ts
 ├── App.tsx
@@ -165,7 +164,7 @@ PhotoPicksExpo/
 - [x] Landing page with mode selection
 - [x] Swipe mode with gestures
 - [x] Blurry photo detection workflow
-- [x] Favorites management
+<!-- Favorites management removed for now -->
 - [x] Visual feedback and animations
 - [x] Cross-platform compatibility
 
