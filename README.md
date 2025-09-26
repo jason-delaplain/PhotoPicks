@@ -63,7 +63,6 @@ A modern React Native app built with Expo for organizing and managing your photo
 - `LandingPage.tsx` - Feature selection and app introduction
 - `SwipePhotoSwiper.tsx` - Gesture-based organization
 - `BlurryPhotos.tsx` - Blurry photo detection and cleanup
-<!-- FavoritesManager removed -->
 
 ### Data
 - Operates on the device photo library via Expo MediaLibrary
