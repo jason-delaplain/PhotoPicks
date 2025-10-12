@@ -141,14 +141,67 @@ A modern React Native app built with Expo for organizing and managing your photo
 
 ### Setup
 ```bash
-cd PhotoPicksExpo
 npm install
 npx expo start
+```
+
+### Building for Native Platforms
+
+#### Android
+```bash
+# Build Android APK
+npm run android:gradle
+
+# Run on Android device/emulator
+npm run android
+```
+
+#### iOS
+```bash
+# Install CocoaPods dependencies
+npm run ios:pods
+
+# Run on iOS device/simulator
+npm run ios
+```
+
+### Prebuild Sync Process
+
+This project uses Expo Prebuild to manage native Android and iOS folders. When native folders are present, configuration in `app.json` needs to be synced to native projects:
+
+```bash
+# Sync app.json configuration to native projects
+npm run prebuild
+
+# Or using npx directly
+npx expo prebuild
+```
+
+**Important**: After modifying `app.json` (icon, splash screen, permissions, etc.), run `npx expo prebuild` to sync changes to the native Android and iOS projects.
+
+### Common Issues & Workarounds
+
+#### Watchman Issues
+If you encounter file watching issues during development:
+
+```bash
+# Restart watchman
+watchman shutdown-server
+watchman watch-del-all
+
+# Then restart Expo
+npm start
+```
+
+#### Clearing Metro Cache
+```bash
+npx expo start --clear
 ```
 
 ### Key Dependencies
 - `expo` - Cross-platform development framework
 - `react-native` - Core mobile app framework
+- `expo-font` - Font loading support (required by @expo/vector-icons)
 - `@types/react-native` - TypeScript definitions
 
 ### Project Structure

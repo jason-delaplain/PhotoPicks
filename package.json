@@ -5,15 +5,19 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
+    "android:gradle": "cd android && ./gradlew clean assembleDebug",
     "ios": "expo run:ios",
+    "ios:pods": "cd ios && pod install",
+    "prebuild": "npx expo prebuild",
     "web": "expo start --web"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@types/react": "~19.1.10",
     "buffer": "^6.0.3",
-    "expo": "~54.0.10",
-    "expo-file-system": "~19.0.15",
+    "expo": "~54.0.13",
+    "expo-file-system": "~19.0.17",
+    "expo-font": "~14.0.8",
     "expo-haptics": "^15.0.7",
     "expo-image-manipulator": "^14.0.7",
     "expo-linear-gradient": "^15.0.7",
