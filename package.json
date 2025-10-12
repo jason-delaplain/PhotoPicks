@@ -5,9 +5,9 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
-    "android:gradle": "cd android && ./gradlew clean assembleDebug && cd ..",
+    "android:gradle": "cd android && ./gradlew clean assembleDebug",
     "ios": "expo run:ios",
-    "ios:pods": "cd ios && pod install && cd ..",
+    "ios:pods": "cd ios && pod install",
     "prebuild": "npx expo prebuild",
     "web": "expo start --web"
   },
