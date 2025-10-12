@@ -9,16 +9,23 @@
     "jsx": "react-native",
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "noImplicitAny": false,
+    "noImplicitAny": true,
     "allowJs": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["react", "react-native", "expo"]
+    "types": ["react", "react-native", "expo", "jest"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
   },
   "include": [
     "**/*.ts",
     "**/*.tsx"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "babel.config.js",
+    "metro.config.js",
+    "jest.config.js"
   ]
 }
